@@ -255,8 +255,12 @@ wss.on("connection", async (ws, req) => {
                 ws.send(JSON.stringify(audioMessage));
               } else if (deepgramData.type === "AgentThinking") {
                 console.log("🧠 AI is thinking...");
+              } else if (deepgramData.type === "TtsStart") {
+                console.log("🎙️ AI is generating speech...");
+              } else if (deepgramData.type === "TtsText") {
+                console.log("💬 AI text response:", deepgramData.text);
               } else if (deepgramData.type === "AgentResponse") {
-                console.log("💬 AI generated response:", deepgramData.response || 'No response text');
+                console.log("🤖 Agent response:", deepgramData.response || deepgramData.text || 'No response text');
               } else if (deepgramData.type === "FunctionCall") {
                 // Handle tool calls
                 console.log(
@@ -728,12 +732,18 @@ async function handleFunctionCall(
         result = { error: "Unknown function" };
     }
 
-    // Send function response back to Deepgram
+    // Send response back to Deepgram
     const response = {
       type: "FunctionResponse",
       function_call_id: functionCallData.function_call_id,
-      result: result,
+      result: JSON.stringify(result),
     };
+    
+    console.log("🔧 About to send function response:");
+    console.log("   - Function:", function_name);
+    console.log("   - Result type:", typeof result);
+    console.log("   - Result content:", JSON.stringify(result, null, 2));
+    console.log("   - Stringified result:", JSON.stringify(result));
 
     console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
     
@@ -815,7 +825,9 @@ async function getAvailableSlots(businessConfig, params) {
     const availableTimes = result.slots?.map(slot => slot.startTime) || [];
     console.log("✅ Available time slots:", availableTimes);
     
-    return availableTimes;
+    return {
+      available_slots: availableTimes
+    };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);
     return { error: "Failed to get available slots" };
