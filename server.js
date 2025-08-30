@@ -84,10 +84,26 @@ wss.on("connection", async (ws, req) => {
           // Set up Deepgram message handling
           deepgramWs.on("message", (deepgramMessage) => {
             try {
-              // Only parse JSON messages, skip binary audio data
-              const messageStr = deepgramMessage.toString();
-              if (!messageStr.startsWith('{')) {
+              // Check if this is binary audio data
+              if (Buffer.isBuffer(deepgramMessage)) {
                 // This is binary audio data, forward to Twilio
+                const audioMessage = {
+                  event: "media",
+                  streamSid: data.start?.streamSid,
+                  media: {
+                    payload: deepgramMessage.toString('base64'),
+                  },
+                };
+                ws.send(JSON.stringify(audioMessage));
+                return;
+              }
+              
+              // Try to parse as JSON for text messages
+              const messageStr = deepgramMessage.toString();
+              
+              // Additional check: if it doesn't look like JSON, treat as binary
+              if (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('[')) {
+                // This is likely binary audio data, forward to Twilio
                 const audioMessage = {
                   event: "media",
                   streamSid: data.start?.streamSid,
@@ -292,19 +308,8 @@ async function initializeDeepgram(businessConfig, callContext) {
     console.log(`Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`);
   });
 
-  deepgramWs.on("message", (message) => {
-    try {
-      // Only try to parse as JSON if it's not binary audio data
-      const messageStr = message.toString();
-      if (messageStr.startsWith('{')) {
-        console.log("Deepgram message received:", messageStr);
-      } else {
-        console.log("Deepgram binary audio received:", message.length, "bytes");
-      }
-    } catch (error) {
-      console.log("Deepgram binary data received:", message.length, "bytes");
-    }
-  });
+  // Message handling is done in the main connection handler
+  // to avoid duplicate handlers and conflicts
 
   return deepgramWs;
 }
