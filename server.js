@@ -434,6 +434,9 @@ async function initializeDeepgram(businessConfig, callContext) {
             businessConfig,
             callContext
           );
+          
+          console.log("📝 Generated system prompt length:", systemPrompt.length, "characters");
+          console.log("📝 System prompt preview (first 500 chars):", systemPrompt.substring(0, 500) + "...");
 
           const config = {
             type: "Settings",
@@ -474,11 +477,27 @@ async function initializeDeepgram(businessConfig, callContext) {
             },
           };
 
+          console.log("📋 Deepgram configuration summary:");
+          console.log("   - Audio input: mulaw, 8000Hz");
+          console.log("   - Audio output: mulaw, 8000Hz");
+          console.log("   - Think model: gpt-4o-mini");
+          console.log("   - Speak model: aura-2-thalia-en");
+          console.log("   - Functions available:", config.agent.think.functions.length);
+          console.log("   - Prompt length:", config.agent.think.prompt.length, "characters");
+          
           console.log(
-            "Sending Deepgram configuration:",
+            "📤 Sending Deepgram configuration:",
             JSON.stringify(config, null, 2)
           );
-          deepgramWs.send(JSON.stringify(config));
+          
+          try {
+            deepgramWs.send(JSON.stringify(config));
+            console.log("✅ Configuration sent successfully to Deepgram");
+          } catch (configError) {
+            console.error("❌ Error sending configuration to Deepgram:", configError);
+            reject(configError);
+            return;
+          }
 
           // Set up keep-alive messages to maintain connection
           const keepAliveInterval = setInterval(() => {
@@ -671,6 +690,9 @@ async function handleFunctionCall(
 
     switch (function_name) {
       case "get_services":
+        console.log("🔍 Processing get_services request...");
+        console.log("📊 Raw services from config:", businessConfig.services.length, "services found");
+        
         result = businessConfig.services.map((s) => ({
           id: s.id,
           name: s.name,
@@ -678,7 +700,9 @@ async function handleFunctionCall(
           price: s.price,
           description: s.description,
         }));
-        console.log("📋 Returning services list:", JSON.stringify(result, null, 2));
+        
+        console.log("📋 Mapped services result:", JSON.stringify(result, null, 2));
+        console.log("✅ get_services processing complete");
         break;
 
       case "get_available_slots":
@@ -697,12 +721,19 @@ async function handleFunctionCall(
     const response = {
       type: "FunctionResponse",
       function_call_id: functionCallData.function_call_id,
-      result: JSON.stringify(result),
+      result: result,
     };
 
     console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
-    deepgramWs.send(JSON.stringify(response));
-    console.log("✅ Function response sent successfully");
+    
+    try {
+      deepgramWs.send(JSON.stringify(response));
+      console.log("✅ Function response sent successfully to Deepgram");
+      console.log("🔄 Waiting for Deepgram to process the response...");
+    } catch (sendError) {
+      console.error("❌ Error sending response to Deepgram:", sendError);
+      throw sendError;
+    }
   } catch (error) {
     console.error("Error handling function call:", error);
 
@@ -710,7 +741,7 @@ async function handleFunctionCall(
     const errorResponse = {
       type: "FunctionResponse",
       function_call_id: functionCallData.function_call_id,
-      result: JSON.stringify({ error: "Function execution failed" }),
+      result: { error: "Function execution failed" },
     };
 
     deepgramWs.send(JSON.stringify(errorResponse));
