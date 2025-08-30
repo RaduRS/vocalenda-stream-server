@@ -308,7 +308,6 @@ wss.on("connection", async (ws, req) => {
               }
 
               deepgramWs.send(audioBuffer);
-              console.log(`📤 Sent ${audioBuffer.length} bytes to Deepgram`);
             } catch (error) {
               console.error("❌ Error processing audio from Twilio:", error);
             }
