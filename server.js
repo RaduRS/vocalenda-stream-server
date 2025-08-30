@@ -280,7 +280,11 @@ wss.on("connection", async (ws, req) => {
 
         case "media":
           // Forward audio to Deepgram only when connection is ready
-          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN && deepgramReady) {
+          if (
+            deepgramWs &&
+            deepgramWs.readyState === WebSocket.OPEN &&
+            deepgramReady
+          ) {
             // Validate incoming audio data
             if (!data.media?.payload) {
               console.warn("⚠️ Received media event without payload");
@@ -365,6 +369,18 @@ async function loadBusinessConfig(businessId) {
       .eq("business_id", businessId)
       .eq("is_active", true);
 
+    // Log Google Calendar connection status for debugging
+    console.log(`📅 Business ${business.name} Google Calendar Status:`);
+    console.log(
+      `   - Calendar ID: ${business.google_calendar_id || "Not connected"}`
+    );
+    console.log(`   - Timezone: ${business.timezone || "Not set"}`);
+    console.log(
+      `   - Integration Config: ${
+        config?.integration_settings?.google ? "Available" : "Not available"
+      }`
+    );
+
     return {
       business,
       config: config || null,
@@ -400,7 +416,10 @@ async function initializeDeepgram(businessConfig, callContext) {
           console.log("✅ Welcome message received - sending configuration");
 
           // Send initial configuration after Welcome (like official example)
-          const systemPrompt = generateSystemPrompt(businessConfig, callContext);
+          const systemPrompt = generateSystemPrompt(
+            businessConfig,
+            callContext
+          );
 
           const config = {
             type: "Settings",
@@ -612,6 +631,10 @@ async function handleFunctionCall(
   businessConfig
 ) {
   try {
+    console.log(
+      "🔧 Function call received:",
+      JSON.stringify(functionCallData, null, 2)
+    );
     const { function_name, parameters } = functionCallData;
     let result;
 
@@ -683,9 +706,13 @@ async function getAvailableSlots(businessConfig, params) {
   return slots.filter((slot) => slot.available).map((slot) => slot.time);
 }
 
-// Create a new booking
+// Create a new booking by calling the internal Next.js API endpoint
 async function createBooking(businessConfig, params) {
   try {
+    console.log(
+      "🎯 createBooking called with params:",
+      JSON.stringify(params, null, 2)
+    );
     const { customer_name, service_id, date, time, customer_phone } = params;
 
     // Find the service
@@ -694,64 +721,61 @@ async function createBooking(businessConfig, params) {
       return { error: "Service not found" };
     }
 
-    // Create customer if not exists
-    let customer;
-    if (customer_phone) {
-      const { data: existingCustomer } = await supabase
-        .from("customers")
-        .select("id")
-        .eq("phone", customer_phone)
-        .single();
-
-      if (existingCustomer) {
-        customer = existingCustomer;
-      } else {
-        const { data: newCustomer, error: customerError } = await supabase
-          .from("customers")
-          .insert({
-            business_id: businessConfig.business.id,
-            name: customer_name,
-            phone: customer_phone,
-          })
-          .select("id")
-          .single();
-
-        if (customerError) {
-          console.error("Error creating customer:", customerError);
-          return { error: "Failed to create customer" };
-        }
-
-        customer = newCustomer;
-      }
-    }
-
-    // Create the appointment
+    // Calculate start and end times
     const appointmentDateTime = `${date}T${time}:00`;
+    const startTime = new Date(appointmentDateTime);
+    const endTime = new Date(
+      startTime.getTime() + service.duration_minutes * 60000
+    );
 
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .insert({
-        business_id: businessConfig.business.id,
-        customer_id: customer?.id || null,
-        service_id: service_id,
-        scheduled_at: appointmentDateTime,
-        duration_minutes: service.duration_minutes,
-        status: "confirmed",
-        customer_name: customer_name,
-        customer_phone: customer_phone || null,
-      })
-      .select("id")
-      .single();
+    // Prepare booking data for the Next.js API
+    const bookingData = {
+      businessId: businessConfig.business.id,
+      serviceId: service_id,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      customerName: customer_name,
+      customerPhone: customer_phone || null,
+      customerEmail: null, // Voice calls don't typically capture email
+      notes: `Voice booking - Customer: ${customer_name}`,
+    };
 
-    if (appointmentError) {
-      console.error("Error creating appointment:", appointmentError);
-      return { error: "Failed to create appointment" };
+    console.log("📞 Calling internal Next.js booking API...");
+
+    // Call the internal Next.js booking API endpoint
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const response = await fetch(`${baseUrl}/api/internal/booking`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+      },
+      body: JSON.stringify(bookingData),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error("❌ Booking API error:", result);
+      return { error: result.error || "Failed to create booking" };
     }
+
+    console.log(
+      "✅ Appointment created successfully via API:",
+      result.appointmentId
+    );
+    console.log("📅 Calendar event ID:", result.calendarEventId || "None");
+
+    const successMessage = `Appointment booked for ${customer_name} on ${date} at ${time} for ${service.name}`;
+    const calendarNote = result.calendarEventId
+      ? " Event has been added to your Google Calendar."
+      : "";
 
     return {
       success: true,
-      appointment_id: appointment.id,
-      message: `Appointment booked for ${customer_name} on ${date} at ${time} for ${service.name}`,
+      appointment_id: result.appointmentId,
+      calendar_event_id: result.calendarEventId,
+      message: successMessage + calendarNote,
     };
   } catch (error) {
     console.error("Error in createBooking:", error);
