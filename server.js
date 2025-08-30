@@ -464,44 +464,41 @@ async function initializeDeepgram(businessConfig, callContext) {
           console.log("📝 Generated system prompt length:", systemPrompt.length, "characters");
           console.log("📝 System prompt preview (first 500 chars):", systemPrompt.substring(0, 500) + "...");
 
-          const config = {
-            type: "Settings",
-            audio: {
-              input: {
-                encoding: "mulaw",
-                sample_rate: 8000,
-              },
-              output: {
-                encoding: "mulaw",
-                sample_rate: 8000,
-                container: "none",
-              },
+const config = {
+  type: "Settings",
+  audio: {
+    input: { encoding: "mulaw", sample_rate: 8000 },
+    output: { encoding: "mulaw", sample_rate: 8000, container: "none" },
+  },
+  agent: {
+    language: "en",
+    listen: {
+      provider: { type: "deepgram", model: "nova-3" }
+    },
+    think: {
+      provider: { type: "open_ai", model: "gpt-4o-mini" },
+      instructions: `You are a booking assistant. When someone asks about appointments or booking, ALWAYS call the get_available_slots function first.`,
+      functions: [
+        {
+          name: "get_available_slots",
+          description: "Get available appointment times",
+          parameters: {
+            type: "object",
+            properties: {
+              date: { type: "string", description: "Date in YYYY-MM-DD format" }
             },
-            agent: {
-              language: "en",
-              listen: {
-                provider: {
-                  type: "deepgram",
-                  model: "nova-3",
-                },
-              },
-              think: {
-                provider: {
-                  type: "open_ai",
-                  model: "gpt-4o-mini",
-                },
-                prompt: systemPrompt,
-                functions: getAvailableFunctions(),
-              },
-              speak: {
-                provider: {
-                  type: "deepgram",
-                  model: "aura-2-thalia-en",
-                },
-              },
-              greeting: "Thank you for calling, how can I help you today?",
-            },
-          };
+            required: ["date"]
+          }
+        }
+      ]
+    },
+    speak: {
+      provider: { type: "deepgram", model: "aura-2-thalia-en" }
+    },
+    greeting: "Hi! I can help you book appointments. What date are you looking for?"
+  }
+};
+
 
           console.log("📋 Deepgram configuration summary:");
           console.log("   - Audio input: mulaw, 8000Hz");
