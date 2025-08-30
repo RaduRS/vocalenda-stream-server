@@ -280,11 +280,7 @@ wss.on("connection", async (ws, req) => {
 
         case "media":
           // Forward audio to Deepgram only when connection is ready
-          if (
-            deepgramWs &&
-            deepgramWs.readyState === WebSocket.OPEN &&
-            deepgramReady
-          ) {
+          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN && deepgramReady) {
             // Validate incoming audio data
             if (!data.media?.payload) {
               console.warn("⚠️ Received media event without payload");
@@ -395,85 +391,89 @@ async function initializeDeepgram(businessConfig, callContext) {
       console.log("Connection readyState:", deepgramWs.readyState);
     });
 
+    let configurationSent = false;
+    
     // Wait for Welcome message before sending configuration (like official example)
     deepgramWs.on("message", (message) => {
-      try {
-        const data = JSON.parse(message.toString());
+      // Only handle initialization messages before configuration is sent
+      if (!configurationSent) {
+        try {
+          const data = JSON.parse(message.toString());
 
-        if (data.type === "Welcome") {
-          console.log("✅ Welcome message received - sending configuration");
+          if (data.type === "Welcome") {
+            console.log("✅ Welcome message received - sending configuration");
 
-          // Send initial configuration after Welcome (like official example)
-          const systemPrompt = generateSystemPrompt(
-            businessConfig,
-            callContext
-          );
+            // Send initial configuration after Welcome (like official example)
+            const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
-          const config = {
-            type: "Settings",
-            audio: {
-              input: {
-                encoding: "mulaw",
-                sample_rate: 8000,
-              },
-              output: {
-                encoding: "mulaw",
-                sample_rate: 8000,
-                container: "none",
-              },
-            },
-            agent: {
-              language: "en",
-              listen: {
-                provider: {
-                  type: "deepgram",
-                  model: "nova-3",
+            const config = {
+              type: "Settings",
+              audio: {
+                input: {
+                  encoding: "mulaw",
+                  sample_rate: 8000,
+                },
+                output: {
+                  encoding: "mulaw",
+                  sample_rate: 8000,
+                  container: "none",
                 },
               },
-              think: {
-                provider: {
-                  type: "open_ai",
-                  model: "gpt-4o-mini",
+              agent: {
+                language: "en",
+                listen: {
+                  provider: {
+                    type: "deepgram",
+                    model: "nova-3",
+                  },
                 },
-                prompt: systemPrompt,
-                functions: getAvailableFunctions(),
-              },
-              speak: {
-                provider: {
-                  type: "deepgram",
-                  model: "aura-2-thalia-en",
+                think: {
+                  provider: {
+                    type: "open_ai",
+                    model: "gpt-4o-mini",
+                  },
+                  prompt: systemPrompt,
+                  functions: getAvailableFunctions(),
                 },
+                speak: {
+                  provider: {
+                    type: "deepgram",
+                    model: "aura-2-thalia-en",
+                  },
+                },
+                greeting: "Thank you for calling, how can I help you today?",
               },
-              greeting: "Thank you for calling, how can I help you today?",
-            },
-          };
+            };
 
-          console.log(
-            "Sending Deepgram configuration:",
-            JSON.stringify(config, null, 2)
-          );
-          deepgramWs.send(JSON.stringify(config));
+            console.log(
+              "Sending Deepgram configuration:",
+              JSON.stringify(config, null, 2)
+            );
+            deepgramWs.send(JSON.stringify(config));
+            configurationSent = true;
 
-          // Set up keep-alive messages to maintain connection
-          const keepAliveInterval = setInterval(() => {
-            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
-              deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
-              console.log("Sent keep-alive to Deepgram");
-            } else {
+            // Set up keep-alive messages to maintain connection
+            const keepAliveInterval = setInterval(() => {
+              if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+                deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
+                console.log("Sent keep-alive to Deepgram");
+              } else {
+                clearInterval(keepAliveInterval);
+              }
+            }, 5000);
+
+            // Clean up interval when connection closes
+            deepgramWs.on("close", () => {
               clearInterval(keepAliveInterval);
-            }
-          }, 5000);
+            });
 
-          // Clean up interval when connection closes
-          deepgramWs.on("close", () => {
-            clearInterval(keepAliveInterval);
-          });
-
-          // Resolve the promise with the connected WebSocket
-          resolve(deepgramWs);
+            // Resolve the promise with the connected WebSocket
+            resolve(deepgramWs);
+          }
+        } catch (error) {
+          // Ignore JSON parsing errors during initialization - likely binary audio
+          console.log("Received non-JSON data during initialization (likely audio), ignoring");
         }
-      } catch (error) {
-        console.error("Error parsing Deepgram initialization message:", error);
       }
     });
 
