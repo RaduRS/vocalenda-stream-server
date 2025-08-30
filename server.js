@@ -273,67 +273,81 @@ async function initializeDeepgram(businessConfig, callContext) {
   });
 
   deepgramWs.on("open", () => {
-    console.log("Connected to Deepgram Voice Agent");
+    console.log("Connected to Deepgram Voice Agent - waiting for Welcome message");
+  });
 
-    // Send initial configuration
-    const systemPrompt = generateSystemPrompt(businessConfig, callContext);
+  // Wait for Welcome message before sending configuration (like official example)
+  deepgramWs.on("message", (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      
+      if (data.type === "Welcome") {
+        console.log("✅ Welcome message received - sending configuration");
+        
+        // Send initial configuration after Welcome (like official example)
+        const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
-    const config = {
-      type: "Settings",
-      audio: {
-        input: {
-          encoding: "mulaw",
-          sample_rate: 8000,
-        },
-        output: {
-          encoding: "mulaw",
-          sample_rate: 8000,
-          container: "none",
-        },
-      },
-      agent: {
-        language: "en",
-        listen: {
-          provider: {
-            type: "deepgram",
-            model: "nova-3",
+        const config = {
+          type: "Settings",
+          audio: {
+            input: {
+              encoding: "mulaw",
+              sample_rate: 8000,
+            },
+            output: {
+              encoding: "mulaw",
+              sample_rate: 8000,
+              container: "none",
+            },
           },
-        },
-        think: {
-          provider: {
-            type: "open_ai",
-            model: "gpt-4o-mini",
+          agent: {
+            language: "en",
+            listen: {
+              provider: {
+                type: "deepgram",
+                model: "nova-3",
+              },
+            },
+            think: {
+              provider: {
+                type: "open_ai",
+                model: "gpt-4o-mini",
+              },
+              prompt: systemPrompt,
+              functions: getAvailableFunctions(),
+            },
+            speak: {
+              provider: {
+                type: "deepgram",
+                model: "aura-2-thalia-en",
+              },
+            },
+            greeting: "Thank you for calling, how can I help you today?"
           },
-          prompt: systemPrompt,
-          functions: getAvailableFunctions(),
-        },
-        speak: {
-          provider: {
-            type: "deepgram",
-            model: "aura-2-thalia-en",
-          },
-        },
-        greeting: "Thank you for calling, how can I help you today?"
-      },
-    };
+        };
 
-    console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
-    deepgramWs.send(JSON.stringify(config));
-    
-    // Set up keep-alive messages to maintain connection
-    const keepAliveInterval = setInterval(() => {
-      if (deepgramWs && deepgramWs.readyState === 1) {
-        deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
-        console.log("Sent keep-alive to Deepgram");
-      } else {
-        clearInterval(keepAliveInterval);
+        console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
+        deepgramWs.send(JSON.stringify(config));
+        
+        // Set up keep-alive messages to maintain connection
+        const keepAliveInterval = setInterval(() => {
+          if (deepgramWs && deepgramWs.readyState === 1) {
+            deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
+            console.log("Sent keep-alive to Deepgram");
+          } else {
+            clearInterval(keepAliveInterval);
+          }
+        }, 5000);
+        
+        // Clean up interval when connection closes
+        deepgramWs.on("close", () => {
+          clearInterval(keepAliveInterval);
+        });
       }
-    }, 5000);
-    
-    // Clean up interval when connection closes
-    deepgramWs.on("close", () => {
-      clearInterval(keepAliveInterval);
-    });
+    } catch (error) {
+      // This message handler is only for Welcome - other messages handled in main connection
+      // Ignore parsing errors here as binary audio will fail JSON parsing
+    }
   });
 
   deepgramWs.on("error", (error) => {
