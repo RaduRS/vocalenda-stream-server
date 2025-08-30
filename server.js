@@ -589,24 +589,7 @@ function generateSystemPrompt(businessConfig, callContext) {
   prompt += `3. Book appointments for customers\n`;
   prompt += `4. Answer general questions about the business\n\n`;
 
-  prompt += `IMPORTANT BOOKING INSTRUCTIONS:\n`;
-  prompt += `- Always use get_services first to get the current service list with IDs\n`;
-  prompt += `- When checking availability, use get_available_slots with the date and service_id\n`;
-  prompt += `- Present available time slots to the customer and let them choose\n`;
-  prompt += `- When booking, use the exact service ID from the get_services response\n`;
-  prompt += `- Always get customer name, phone number, preferred service, date, and time\n`;
-  prompt += `- Use YYYY-MM-DD format for dates and HH:MM format for times (24-hour)\n`;
-  prompt += `- After getting all information, call create_booking with the exact parameters\n`;
-  prompt += `- If get_available_slots returns an error, inform the customer and suggest alternatives\n\n`;
-  prompt += `BOOKING FLOW:\n`;
-  prompt += `1. Get customer's preferred service using get_services\n`;
-  prompt += `2. Get customer's preferred date\n`;
-  prompt += `3. Check availability using get_available_slots\n`;
-  prompt += `4. Present available times to customer\n`;
-  prompt += `5. Get customer's name and phone number\n`;
-  prompt += `6. Confirm booking details and create appointment\n\n`;
-
-  prompt += `Always be polite, helpful, and professional. Guide customers through the booking process step by step.`;
+  prompt += `Always be polite, helpful, and professional. If you need to book an appointment, make sure to get the customer's name, preferred service, and preferred date/time.`;
 
   return prompt;
 }
