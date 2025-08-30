@@ -583,13 +583,18 @@ function generateSystemPrompt(businessConfig, callContext) {
     prompt += `\n`;
   });
 
-  prompt += `\nYour primary goal is to help customers book appointments. You can:\n`;
-  prompt += `1. Provide information about services and pricing\n`;
-  prompt += `2. Check availability for appointments\n`;
-  prompt += `3. Book appointments for customers\n`;
-  prompt += `4. Answer general questions about the business\n\n`;
+  prompt += `\nYour primary goal is to help customers book appointments. You have access to these functions:\n`;
+  prompt += `1. get_services - Get list of available services (though services are already listed above)\n`;
+  prompt += `2. get_available_slots - Check availability for specific dates (USE THIS when customers ask about availability)\n`;
+  prompt += `3. create_booking - Book appointments for customers\n\n`;
 
-  prompt += `Always be polite, helpful, and professional. If you need to book an appointment, make sure to get the customer's name, preferred service, and preferred date/time.`;
+  prompt += `IMPORTANT: When customers ask about availability or want to book an appointment:\n`;
+  prompt += `- Always use get_available_slots function to check real-time availability\n`;
+  prompt += `- Ask for their preferred date and service, then call get_available_slots\n`;
+  prompt += `- Present the available time slots to the customer\n`;
+  prompt += `- Once they choose a time, use create_booking to complete the appointment\n\n`;
+
+  prompt += `Always be polite, helpful, and professional. Make sure to get the customer's name, preferred service, and preferred date/time for bookings.`;
 
   return prompt;
 }
