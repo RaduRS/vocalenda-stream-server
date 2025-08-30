@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 // Load environment variables
 // In production, use system environment variables
 // In development, load from .env.local
-if (process.env.NODE_ENV !== "production") {
+if (process.env.NODE_ENV !== 'production') {
   dotenv.config({ path: ".env.local" });
 }
 
@@ -83,13 +83,36 @@ wss.on("connection", async (ws, req) => {
 
           // Set up Deepgram message handling
           deepgramWs.on("message", (deepgramMessage) => {
-            const deepgramData = JSON.parse(deepgramMessage.toString());
+            try {
+              // Only parse JSON messages, skip binary audio data
+              const messageStr = deepgramMessage.toString();
+              if (!messageStr.startsWith('{')) {
+                // This is binary audio data, forward to Twilio
+                const audioMessage = {
+                  event: "media",
+                  streamSid: data.start?.streamSid,
+                  media: {
+                    payload: deepgramMessage.toString('base64'),
+                  },
+                };
+                ws.send(JSON.stringify(audioMessage));
+                return;
+              }
+              
+              const deepgramData = JSON.parse(messageStr);
 
             // Handle different types of Deepgram messages
             if (deepgramData.type === "SettingsApplied") {
               // Deepgram is now ready to receive audio
               console.log("Deepgram settings applied - ready to receive audio");
               deepgramReady = true;
+              
+              // Send initial greeting
+              const greetingMessage = {
+                type: "Speak",
+                text: "Thank you for calling, how can I help you today?"
+              };
+              deepgramWs.send(JSON.stringify(greetingMessage));
             } else if (deepgramData.type === "Results") {
               // Speech-to-text results
               console.log(
@@ -118,6 +141,9 @@ wss.on("connection", async (ws, req) => {
                 handleFunctionCall(deepgramWs, deepgramData, businessConfig);
               }
             }
+            } catch (error) {
+              console.error("Error parsing Deepgram message:", error);
+            }
           });
 
           deepgramWs.on("error", (error) => {
@@ -134,13 +160,11 @@ wss.on("connection", async (ws, req) => {
           // Forward audio to Deepgram only after SettingsApplied is received
           if (deepgramWs && deepgramWs.readyState === 1 && deepgramReady) {
             // Deepgram Voice Agent expects raw binary audio data, not JSON
-            const audioBuffer = Buffer.from(data.media.payload, "base64");
+            const audioBuffer = Buffer.from(data.media.payload, 'base64');
             console.log(`Forwarding audio chunk: ${audioBuffer.length} bytes`);
             deepgramWs.send(audioBuffer);
           } else {
-            console.log(
-              `Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`
-            );
+            console.log(`Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`);
           }
           break;
 
@@ -207,14 +231,11 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket(
-    "wss://agent.deepgram.com/v1/agent/converse",
-    {
-      headers: {
-        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-      },
-    }
-  );
+  const deepgramWs = new WebSocket("wss://agent.deepgram.com/v1/agent/converse", {
+    headers: {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+    },
+  });
 
   deepgramWs.on("open", () => {
     console.log("Connected to Deepgram Voice Agent");
@@ -259,10 +280,7 @@ async function initializeDeepgram(businessConfig, callContext) {
       },
     };
 
-    console.log(
-      "Sending Deepgram configuration:",
-      JSON.stringify(config, null, 2)
-    );
+    console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
     deepgramWs.send(JSON.stringify(config));
   });
 
@@ -271,13 +289,21 @@ async function initializeDeepgram(businessConfig, callContext) {
   });
 
   deepgramWs.on("close", (code, reason) => {
-    console.log(
-      `Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`
-    );
+    console.log(`Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`);
   });
 
   deepgramWs.on("message", (message) => {
-    console.log("Deepgram message received:", message.toString());
+    try {
+      // Only try to parse as JSON if it's not binary audio data
+      const messageStr = message.toString();
+      if (messageStr.startsWith('{')) {
+        console.log("Deepgram message received:", messageStr);
+      } else {
+        console.log("Deepgram binary audio received:", message.length, "bytes");
+      }
+    } catch (error) {
+      console.log("Deepgram binary data received:", message.length, "bytes");
+    }
   });
 
   return deepgramWs;
