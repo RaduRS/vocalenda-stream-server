@@ -128,14 +128,10 @@ wss.on("connection", async (ws, req) => {
         case "media":
           // Forward audio to Deepgram
           if (deepgramWs && deepgramWs.readyState === 1) {
-            const audioData = {
-              type: "Audio",
-              data: data.media.payload,
-            };
-            console.log(
-              `Forwarding audio chunk: ${data.media.payload.length} bytes`
-            );
-            deepgramWs.send(JSON.stringify(audioData));
+            // Deepgram Voice Agent expects raw binary audio data, not JSON
+            const audioBuffer = Buffer.from(data.media.payload, "base64");
+            console.log(`Forwarding audio chunk: ${audioBuffer.length} bytes`);
+            deepgramWs.send(audioBuffer);
           } else {
             console.log(
               `Deepgram not ready, readyState: ${deepgramWs?.readyState}`
