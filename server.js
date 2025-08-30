@@ -91,7 +91,7 @@ wss.on("connection", async (ws, req) => {
           }
 
           // Set up Deepgram message handling
-          deepgramWs.on("message", (deepgramMessage) => {
+          deepgramWs.on("message", async (deepgramMessage) => {
             try {
               // Check if this is binary audio data
               if (Buffer.isBuffer(deepgramMessage)) {
@@ -139,6 +139,9 @@ wss.on("connection", async (ws, req) => {
                 }
                 return;
               }
+
+              // Log all non-binary messages for debugging
+              console.log("📨 Received Deepgram message:", deepgramMessage.toString().substring(0, 200) + "...");
 
               // Try to parse as JSON for text messages
               const messageStr = deepgramMessage.toString();
@@ -221,19 +224,27 @@ wss.on("connection", async (ws, req) => {
                 console.log("✅ Deepgram Welcome message received");
               } else if (deepgramData.type === "Results") {
                 // Speech-to-text results
-                console.log(
-                  "📝 Transcript:",
-                  deepgramData.channel?.alternatives?.[0]?.transcript
-                );
+                const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
+                console.log("📝 Transcript:", transcript);
+                
+                // Check if this looks like a request for availability
+                if (transcript && (transcript.toLowerCase().includes('available') || 
+                                 transcript.toLowerCase().includes('appointment') ||
+                                 transcript.toLowerCase().includes('book') ||
+                                 transcript.toLowerCase().includes('schedule'))) {
+                  console.log("🎯 Detected potential booking/availability request in transcript");
+                  console.log("🤖 AI should be processing this and potentially calling get_available_slots function");
+                }
               } else if (deepgramData.type === "SpeechStarted") {
                 // User started speaking
                 console.log("🎤 User started speaking");
               } else if (deepgramData.type === "UtteranceEnd") {
                 // User finished speaking
                 console.log("🔇 User finished speaking");
+                console.log("🧠 AI should now be thinking and potentially making function calls...");
               } else if (deepgramData.type === "TtsAudio") {
                 // AI response audio - forward to Twilio
-                console.log("🔊 Received TTS audio from Deepgram");
+                console.log("🔊 Received TTS audio from Deepgram - AI is responding");
                 const audioMessage = {
                   event: "media",
                   streamSid: data.start?.streamSid,
@@ -242,14 +253,25 @@ wss.on("connection", async (ws, req) => {
                   },
                 };
                 ws.send(JSON.stringify(audioMessage));
+              } else if (deepgramData.type === "AgentThinking") {
+                console.log("🧠 AI is thinking...");
+              } else if (deepgramData.type === "AgentResponse") {
+                console.log("💬 AI generated response:", deepgramData.response || 'No response text');
               } else if (deepgramData.type === "FunctionCall") {
                 // Handle tool calls
                 console.log(
                   "🔧 Function call received:",
                   deepgramData.function_name
                 );
+                console.log("🔧 Full function call data:", JSON.stringify(deepgramData, null, 2));
                 if (deepgramWs && businessConfig) {
-                  handleFunctionCall(deepgramWs, deepgramData, businessConfig);
+                  console.log("🔧 Calling handleFunctionCall...");
+                  await handleFunctionCall(deepgramWs, deepgramData, businessConfig);
+                  console.log("🔧 handleFunctionCall completed");
+                } else {
+                  console.error("❌ Cannot handle function call - missing deepgramWs or businessConfig");
+                  console.log("   - deepgramWs:", !!deepgramWs);
+                  console.log("   - businessConfig:", !!businessConfig);
                 }
               } else if (deepgramData.type === "Error") {
                 console.error("❌ Deepgram Error:", deepgramData);
@@ -308,12 +330,13 @@ wss.on("connection", async (ws, req) => {
               }
 
               deepgramWs.send(audioBuffer);
+              console.log(`🎤 Forwarded ${audioBuffer.length} bytes of audio from Twilio to Deepgram`);
             } catch (error) {
               console.error("❌ Error processing audio from Twilio:", error);
             }
           } else {
             console.log(
-              `Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`
+              `⚠️ Cannot forward audio - deepgramWs ready: ${!!deepgramWs && deepgramWs.readyState === WebSocket.OPEN}, isReady: ${deepgramReady}`
             );
           }
           break;
