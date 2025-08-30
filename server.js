@@ -308,12 +308,15 @@ async function initializeDeepgram(businessConfig, callContext) {
             },
           },
           agent: {
-            language: "en",
             listen: {
               provider: {
                 type: "deepgram",
                 model: "nova-3",
               },
+              smart_format: true,
+              interim_results: true,
+              vad_events: true,
+              endpointing: 300,
             },
             think: {
               provider: {
