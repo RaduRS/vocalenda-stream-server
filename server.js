@@ -93,6 +93,13 @@ wss.on("connection", async (ws, req) => {
               // Check if this is binary audio data
               if (Buffer.isBuffer(deepgramMessage)) {
                 console.log("Processing binary audio data from Deepgram");
+                
+                // If we're receiving audio, Deepgram is clearly ready
+                if (!deepgramReady) {
+                  console.log("🎉 Deepgram is sending audio - marking as ready!");
+                  deepgramReady = true;
+                }
+                
                 // This is binary audio data, forward to Twilio
                 const audioMessage = {
                   event: "media",
@@ -112,6 +119,13 @@ wss.on("connection", async (ws, req) => {
               // Additional check: if it doesn't look like JSON, treat as binary
               if (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('[')) {
                 console.log("Processing non-JSON data as binary audio");
+                
+                // If we're receiving audio, Deepgram is clearly ready
+                if (!deepgramReady) {
+                  console.log("🎉 Deepgram is sending audio - marking as ready!");
+                  deepgramReady = true;
+                }
+                
                 // This is likely binary audio data, forward to Twilio
                 const audioMessage = {
                   event: "media",
