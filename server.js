@@ -263,10 +263,9 @@ wss.on("connection", async (ws, req) => {
                 console.log("🤖 Agent response:", deepgramData.response || deepgramData.text || 'No response text');
               } else if (deepgramData.type === "FunctionCall") {
                 // Handle tool calls
-                console.log(
-                  "🔧 Function call received:",
-                  deepgramData.function_name
-                );
+                console.log("🚨🚨 FUNCTION CALL DETECTED! 🚨🚨");
+                console.log("Function name:", deepgramData.function_name);
+                console.log("Parameters:", JSON.stringify(deepgramData.parameters, null, 2));
                 console.log("🔧 Full function call data:", JSON.stringify(deepgramData, null, 2));
                 if (deepgramWs && businessConfig) {
                   console.log("🔧 Calling handleFunctionCall...");
@@ -577,51 +576,40 @@ function generateSystemPrompt(businessConfig, callContext) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
-  let prompt = `You are a friendly and professional AI receptionist for ${business.name}.`;
+  let prompt = `You are a professional AI receptionist for ${business.name}. Your job is to help customers book appointments using the available functions.
 
-  if (business.description) {
-    prompt += ` ${business.description}`;
-  }
+BUSINESS INFORMATION:
+- Name: ${business.name}`;
 
-  prompt += `\n\nBusiness Information:\n`;
-  prompt += `- Name: ${business.name}\n`;
+  if (business.address) prompt += `\n- Address: ${business.address}`;
+  if (business.phone_number) prompt += `\n- Phone: ${business.phone_number}`;
+  if (business.email) prompt += `\n- Email: ${business.email}`;
 
-  if (business.address) {
-    prompt += `- Address: ${business.address}\n`;
-  }
-
-  if (business.phone_number) {
-    prompt += `- Phone: ${business.phone_number}\n`;
-  }
-
-  if (business.email) {
-    prompt += `- Email: ${business.email}\n`;
-  }
-
-  prompt += `\nServices Available:\n`;
+  prompt += `\n\nSERVICES AVAILABLE:`;
   services.forEach((service) => {
-    prompt += `- ${service.name}: ${service.duration_minutes} minutes`;
-    if (service.price) {
-      prompt += `, ${service.currency}${service.price}`;
-    }
-    if (service.description) {
-      prompt += ` - ${service.description}`;
-    }
-    prompt += `\n`;
+    prompt += `\n- ${service.name}: ${service.duration_minutes} minutes`;
+    if (service.price) prompt += `, ${service.currency}${service.price}`;
   });
 
-  prompt += `\nYour primary goal is to help customers book appointments. You have access to these functions:\n`;
-  prompt += `1. get_services - Get list of available services (though services are already listed above)\n`;
-  prompt += `2. get_available_slots - Check availability for specific dates (USE THIS when customers ask about availability)\n`;
-  prompt += `3. create_booking - Book appointments for customers\n\n`;
+  prompt += `\n\nCRITICAL FUNCTION CALLING RULES:
+1. When a customer asks about booking, availability, appointments, or scheduling, IMMEDIATELY use the get_available_slots function
+2. ALWAYS call get_available_slots before discussing available times
+3. Use create_booking function to complete appointments
+4. Get the customer's name before booking
 
-  prompt += `IMPORTANT: When customers ask about availability or want to book an appointment:\n`;
-  prompt += `- Always use get_available_slots function to check real-time availability\n`;
-  prompt += `- Ask for their preferred date and service, then call get_available_slots\n`;
-  prompt += `- Present the available time slots to the customer\n`;
-  prompt += `- Once they choose a time, use create_booking to complete the appointment\n\n`;
+WORKFLOW EXAMPLE:
+Customer: "I want to book a haircut for tomorrow"
+You: "I'd be happy to help you book a haircut for tomorrow. Can I get your name first?"
+Customer: "John Smith"
+You: IMMEDIATELY CALL get_available_slots function with tomorrow's date
+Then: Present the available times to John
 
-  prompt += `Always be polite, helpful, and professional. Make sure to get the customer's name, preferred service, and preferred date/time for bookings.`;
+KEY TRIGGERS - Call get_available_slots when customers say:
+- "book", "appointment", "available", "schedule", "tomorrow", "today", "next week"
+- Any date or time reference
+- Any service name followed by booking intent
+
+Always call the appropriate function when customers mention booking, availability, or appointments. Be conversational but focused on using functions to help customers.`;
 
   return prompt;
 }
@@ -640,13 +628,13 @@ function getAvailableFunctions() {
     },
     {
       name: "get_available_slots",
-      description: "Get available appointment slots for a specific date",
+      description: "REQUIRED: Call this function whenever a customer asks about availability, booking, or appointments for any date. Use this to check real-time availability before discussing times.",
       parameters: {
         type: "object",
         properties: {
           date: {
             type: "string",
-            description: "Date in YYYY-MM-DD format",
+            description: "Date in YYYY-MM-DD format (e.g., 2025-01-21)",
           },
           service_id: {
             type: "string",
@@ -658,7 +646,7 @@ function getAvailableFunctions() {
     },
     {
       name: "create_booking",
-      description: "Create a new appointment booking",
+      description: "Create a confirmed appointment booking after customer has chosen a time",
       parameters: {
         type: "object",
         properties: {
