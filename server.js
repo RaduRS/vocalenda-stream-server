@@ -411,10 +411,15 @@ async function initializeDeepgram(businessConfig, callContext) {
       try {
         // Check if this is binary data (audio) vs JSON message
         if (message instanceof Buffer && message.length > 0) {
-          // Check if it looks like JSON by examining the first character
-          const firstChar = message[0];
-          if (firstChar !== 0x7B && firstChar !== 0x5B) { // Not '{' or '['
+          const messageStr = message.toString();
+          // Check if it looks like JSON by examining the content
+          if (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('[')) {
             // This is binary audio data, ignore it in initialization
+            return;
+          }
+          // Additional check for binary patterns
+          if (messageStr.includes('\x00') || messageStr.includes('\xFF') || /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)) {
+            // Contains binary characters, ignore it in initialization
             return;
           }
         }
@@ -565,7 +570,14 @@ function generateSystemPrompt(businessConfig, callContext) {
   prompt += `3. Book appointments for customers\n`;
   prompt += `4. Answer general questions about the business\n\n`;
 
-  prompt += `Always be polite, helpful, and professional. If you need to book an appointment, make sure to get the customer's name, preferred service, and preferred date/time.`;
+  prompt += `IMPORTANT BOOKING INSTRUCTIONS:\n`;
+  prompt += `- Always use get_services first to get the current service list with IDs\n`;
+  prompt += `- When booking, use the exact service ID from the get_services response\n`;
+  prompt += `- Always get customer name, phone number, preferred service, date, and time\n`;
+  prompt += `- Use YYYY-MM-DD format for dates and HH:MM format for times (24-hour)\n`;
+  prompt += `- After getting all information, call create_booking with the exact parameters\n\n`;
+
+  prompt += `Always be polite, helpful, and professional. Guide customers through the booking process step by step.`;
 
   return prompt;
 }
@@ -656,6 +668,7 @@ async function handleFunctionCall(
           price: s.price,
           description: s.description,
         }));
+        console.log("📋 Returning services list:", JSON.stringify(result, null, 2));
         break;
 
       case "get_available_slots":
@@ -677,7 +690,9 @@ async function handleFunctionCall(
       result: JSON.stringify(result),
     };
 
+    console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
     deepgramWs.send(JSON.stringify(response));
+    console.log("✅ Function response sent successfully");
   } catch (error) {
     console.error("Error handling function call:", error);
 
@@ -722,13 +737,30 @@ async function createBooking(businessConfig, params) {
       "🎯 createBooking called with params:",
       JSON.stringify(params, null, 2)
     );
+    console.log("📋 Available services:", businessConfig.services.map(s => ({ id: s.id, name: s.name })));
+    
     const { customer_name, service_id, date, time, customer_phone } = params;
 
-    // Find the service
-    const service = businessConfig.services.find((s) => s.id === service_id);
-    if (!service) {
-      return { error: "Service not found" };
+    // Validate required parameters
+    if (!customer_name || !service_id || !date || !time) {
+      console.error("❌ Missing required booking parameters:", { customer_name, service_id, date, time });
+      return { error: "Missing required information: name, service, date, and time are required" };
     }
+
+    // Find the service (try by ID first, then by name as fallback)
+    let service = businessConfig.services.find((s) => s.id === service_id);
+    if (!service) {
+      // Try to find by name (case-insensitive)
+      service = businessConfig.services.find((s) => 
+        s.name.toLowerCase() === service_id.toLowerCase()
+      );
+    }
+    if (!service) {
+      console.error("❌ Service not found. Service ID/Name:", service_id);
+      console.error("📋 Available services:", businessConfig.services.map(s => `${s.id}: ${s.name}`));
+      return { error: `Service not found. Available services: ${businessConfig.services.map(s => s.name).join(', ')}` };
+    }
+    console.log("✅ Service found:", service.name, "(ID:", service.id, ")");
 
     // Calculate start and end times
     const appointmentDateTime = `${date}T${time}:00`;
@@ -750,6 +782,8 @@ async function createBooking(businessConfig, params) {
     };
 
     console.log("📞 Calling internal Next.js booking API...");
+    console.log("🔗 API URL:", `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/api/internal/booking`);
+    console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
 
     // Call the internal Next.js booking API endpoint
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -762,7 +796,10 @@ async function createBooking(businessConfig, params) {
       body: JSON.stringify(bookingData),
     });
 
+    console.log("📡 API Response status:", response.status, response.statusText);
+    
     const result = await response.json();
+    console.log("📋 API Response body:", JSON.stringify(result, null, 2));
 
     if (!response.ok) {
       console.error("❌ Booking API error:", result);
