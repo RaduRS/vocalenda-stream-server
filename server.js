@@ -356,7 +356,6 @@ async function initializeDeepgram(businessConfig, callContext) {
             output: {
               encoding: "linear16",
               sample_rate: 24000,
-              container: "wav",
             },
           },
           agent: {
@@ -383,11 +382,12 @@ async function initializeDeepgram(businessConfig, callContext) {
                 type: "deepgram",
                 model: "aura-2-thalia-en",
               },
-              buffer_size: 100,
+              buffer_size: 250,
             },
             options: {
               turn_detection: {
                 type: "endpointing",
+                endpointing: 300,
               },
             },
             greeting: "Thank you for calling, how can I help you today?"
