@@ -4,7 +4,7 @@ import url from "url";
 import dotenv from "dotenv";
 
 // Load environment variables
-dotenv.config({ path: '.env.local' });
+dotenv.config({ path: ".env.local" });
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -194,11 +194,14 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket("wss://agent.deepgram.com/agent", {
-    headers: {
-      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-    },
-  });
+  const deepgramWs = new WebSocket(
+    "wss://agent.deepgram.com/v1/agent/converse",
+    {
+      headers: {
+        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      },
+    }
+  );
 
   deepgramWs.on("open", () => {
     console.log("Connected to Deepgram Voice Agent");
