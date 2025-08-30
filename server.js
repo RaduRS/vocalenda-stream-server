@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 // Load environment variables
 // In production, use system environment variables
 // In development, load from .env.local
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: ".env.local" });
 }
 
@@ -134,11 +134,13 @@ wss.on("connection", async (ws, req) => {
           // Forward audio to Deepgram only after SettingsApplied is received
           if (deepgramWs && deepgramWs.readyState === 1 && deepgramReady) {
             // Deepgram Voice Agent expects raw binary audio data, not JSON
-            const audioBuffer = Buffer.from(data.media.payload, 'base64');
+            const audioBuffer = Buffer.from(data.media.payload, "base64");
             console.log(`Forwarding audio chunk: ${audioBuffer.length} bytes`);
             deepgramWs.send(audioBuffer);
           } else {
-            console.log(`Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`);
+            console.log(
+              `Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`
+            );
           }
           break;
 
@@ -205,11 +207,14 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket("wss://agent.deepgram.com/v1/agent/converse", {
-    headers: {
-      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-    },
-  });
+  const deepgramWs = new WebSocket(
+    "wss://agent.deepgram.com/v1/agent/converse",
+    {
+      headers: {
+        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      },
+    }
+  );
 
   deepgramWs.on("open", () => {
     console.log("Connected to Deepgram Voice Agent");
@@ -248,13 +253,16 @@ async function initializeDeepgram(businessConfig, callContext) {
         speak: {
           provider: {
             type: "deepgram",
-            model: "aura-thalia-en",
+            model: "aura-asteria-en",
           },
         },
       },
     };
 
-    console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
+    console.log(
+      "Sending Deepgram configuration:",
+      JSON.stringify(config, null, 2)
+    );
     deepgramWs.send(JSON.stringify(config));
   });
 
@@ -263,7 +271,9 @@ async function initializeDeepgram(businessConfig, callContext) {
   });
 
   deepgramWs.on("close", (code, reason) => {
-    console.log(`Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`);
+    console.log(
+      `Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`
+    );
   });
 
   deepgramWs.on("message", (message) => {
