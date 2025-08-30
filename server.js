@@ -368,6 +368,7 @@ async function initializeDeepgram(businessConfig, callContext) {
               smart_format: true,
               interim_results: true,
               vad_events: true,
+              endpointing: 300,
             },
             think: {
               provider: {
@@ -384,12 +385,7 @@ async function initializeDeepgram(businessConfig, callContext) {
               },
               buffer_size: 250,
             },
-            options: {
-              turn_detection: {
-                type: "endpointing",
-                endpointing: 300,
-              },
-            },
+
             greeting: "Thank you for calling, how can I help you today?"
           },
         };
