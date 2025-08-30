@@ -426,9 +426,6 @@ async function initializeDeepgram(businessConfig, callContext) {
                   provider: {
                     type: "deepgram",
                     model: "nova-3",
-                    smart_format: true,
-                    interim_results: false,
-                    endpointing: true,
                   },
                 },
                 think: {
