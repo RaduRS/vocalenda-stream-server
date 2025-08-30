@@ -141,7 +141,10 @@ wss.on("connection", async (ws, req) => {
               }
 
               // Log all non-binary messages for debugging
-              console.log("📨 Received Deepgram message:", deepgramMessage.toString().substring(0, 200) + "...");
+              console.log(
+                "📨 Received Deepgram message:",
+                deepgramMessage.toString().substring(0, 200) + "..."
+              );
 
               // Try to parse as JSON for text messages
               const messageStr = deepgramMessage.toString();
@@ -224,16 +227,24 @@ wss.on("connection", async (ws, req) => {
                 console.log("✅ Deepgram Welcome message received");
               } else if (deepgramData.type === "Results") {
                 // Speech-to-text results
-                const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
+                const transcript =
+                  deepgramData.channel?.alternatives?.[0]?.transcript;
                 console.log("📝 Transcript:", transcript);
-                
+
                 // Check if this looks like a request for availability
-                if (transcript && (transcript.toLowerCase().includes('available') || 
-                                 transcript.toLowerCase().includes('appointment') ||
-                                 transcript.toLowerCase().includes('book') ||
-                                 transcript.toLowerCase().includes('schedule'))) {
-                  console.log("🎯 Detected potential booking/availability request in transcript");
-                  console.log("🤖 AI should be processing this and potentially calling get_available_slots function");
+                if (
+                  transcript &&
+                  (transcript.toLowerCase().includes("available") ||
+                    transcript.toLowerCase().includes("appointment") ||
+                    transcript.toLowerCase().includes("book") ||
+                    transcript.toLowerCase().includes("schedule"))
+                ) {
+                  console.log(
+                    "🎯 Detected potential booking/availability request in transcript"
+                  );
+                  console.log(
+                    "🤖 AI should be processing this and potentially calling get_available_slots function"
+                  );
                 }
               } else if (deepgramData.type === "SpeechStarted") {
                 // User started speaking
@@ -241,10 +252,14 @@ wss.on("connection", async (ws, req) => {
               } else if (deepgramData.type === "UtteranceEnd") {
                 // User finished speaking
                 console.log("🔇 User finished speaking");
-                console.log("🧠 AI should now be thinking and potentially making function calls...");
+                console.log(
+                  "🧠 AI should now be thinking and potentially making function calls..."
+                );
               } else if (deepgramData.type === "TtsAudio") {
                 // AI response audio - forward to Twilio
-                console.log("🔊 Received TTS audio from Deepgram - AI is responding");
+                console.log(
+                  "🔊 Received TTS audio from Deepgram - AI is responding"
+                );
                 const audioMessage = {
                   event: "media",
                   streamSid: data.start?.streamSid,
@@ -260,19 +275,36 @@ wss.on("connection", async (ws, req) => {
               } else if (deepgramData.type === "TtsText") {
                 console.log("💬 AI text response:", deepgramData.text);
               } else if (deepgramData.type === "AgentResponse") {
-                console.log("🤖 Agent response:", deepgramData.response || deepgramData.text || 'No response text');
+                console.log(
+                  "🤖 Agent response:",
+                  deepgramData.response ||
+                    deepgramData.text ||
+                    "No response text"
+                );
               } else if (deepgramData.type === "FunctionCall") {
                 // Handle tool calls
                 console.log("🚨🚨 FUNCTION CALL DETECTED! 🚨🚨");
                 console.log("Function name:", deepgramData.function_name);
-                console.log("Parameters:", JSON.stringify(deepgramData.parameters, null, 2));
-                console.log("🔧 Full function call data:", JSON.stringify(deepgramData, null, 2));
+                console.log(
+                  "Parameters:",
+                  JSON.stringify(deepgramData.parameters, null, 2)
+                );
+                console.log(
+                  "🔧 Full function call data:",
+                  JSON.stringify(deepgramData, null, 2)
+                );
                 if (deepgramWs && businessConfig) {
                   console.log("🔧 Calling handleFunctionCall...");
-                  await handleFunctionCall(deepgramWs, deepgramData, businessConfig);
+                  await handleFunctionCall(
+                    deepgramWs,
+                    deepgramData,
+                    businessConfig
+                  );
                   console.log("🔧 handleFunctionCall completed");
                 } else {
-                  console.error("❌ Cannot handle function call - missing deepgramWs or businessConfig");
+                  console.error(
+                    "❌ Cannot handle function call - missing deepgramWs or businessConfig"
+                  );
                   console.log("   - deepgramWs:", !!deepgramWs);
                   console.log("   - businessConfig:", !!businessConfig);
                 }
@@ -333,13 +365,17 @@ wss.on("connection", async (ws, req) => {
               }
 
               deepgramWs.send(audioBuffer);
-              console.log(`🎤 Forwarded ${audioBuffer.length} bytes of audio from Twilio to Deepgram`);
+              console.log(
+                `🎤 Forwarded ${audioBuffer.length} bytes of audio from Twilio to Deepgram`
+              );
             } catch (error) {
               console.error("❌ Error processing audio from Twilio:", error);
             }
           } else {
             console.log(
-              `⚠️ Cannot forward audio - deepgramWs ready: ${!!deepgramWs && deepgramWs.readyState === WebSocket.OPEN}, isReady: ${deepgramReady}`
+              `⚠️ Cannot forward audio - deepgramWs ready: ${
+                !!deepgramWs && deepgramWs.readyState === WebSocket.OPEN
+              }, isReady: ${deepgramReady}`
             );
           }
           break;
@@ -439,17 +475,24 @@ async function initializeDeepgram(businessConfig, callContext) {
         if (message instanceof Buffer && message.length > 0) {
           const messageStr = message.toString();
           // Check if it looks like JSON by examining the content
-          if (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('[')) {
+          if (
+            !messageStr.trim().startsWith("{") &&
+            !messageStr.trim().startsWith("[")
+          ) {
             // This is binary audio data, ignore it in initialization
             return;
           }
           // Additional check for binary patterns
-          if (messageStr.includes('\x00') || messageStr.includes('\xFF') || /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)) {
+          if (
+            messageStr.includes("\x00") ||
+            messageStr.includes("\xFF") ||
+            /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)
+          ) {
             // Contains binary characters, ignore it in initialization
             return;
           }
         }
-        
+
         const data = JSON.parse(message.toString());
 
         if (data.type === "Welcome") {
@@ -460,64 +503,90 @@ async function initializeDeepgram(businessConfig, callContext) {
             businessConfig,
             callContext
           );
-          
-          console.log("📝 Generated system prompt length:", systemPrompt.length, "characters");
-          console.log("📝 System prompt preview (first 500 chars):", systemPrompt.substring(0, 500) + "...");
 
-const config = {
-  type: "Settings",
-  audio: {
-    input: { encoding: "mulaw", sample_rate: 8000 },
-    output: { encoding: "mulaw", sample_rate: 8000, container: "none" },
-  },
-  agent: {
-    language: "en",
-    listen: {
-      provider: { type: "deepgram", model: "nova-3" }
-    },
-    think: {
-      provider: { type: "open_ai", model: "gpt-4o-mini" },
-      instructions: `You are a booking assistant. When someone asks about appointments or booking, ALWAYS call the get_available_slots function first.`,
-      functions: [
-        {
-          name: "get_available_slots",
-          description: "Get available appointment times",
-          parameters: {
-            type: "object",
-            properties: {
-              date: { type: "string", description: "Date in YYYY-MM-DD format" }
+          console.log(
+            "📝 Generated system prompt length:",
+            systemPrompt.length,
+            "characters"
+          );
+          console.log(
+            "📝 System prompt preview (first 500 chars):",
+            systemPrompt.substring(0, 500) + "..."
+          );
+
+          const functionsArray = getAvailableFunctions();
+          console.log(
+            "   - Functions available:",
+            Array.isArray(functionsArray) ? functionsArray.length : 0
+          );
+
+          const config = {
+            type: "Settings",
+            audio: {
+              input: {
+                encoding: "mulaw",
+                sample_rate: 8000,
+              },
+              output: {
+                encoding: "mulaw",
+                sample_rate: 8000,
+                container: "none",
+              },
             },
-            required: ["date"]
-          }
-        }
-      ]
-    },
-    speak: {
-      provider: { type: "deepgram", model: "aura-2-thalia-en" }
-    },
-    greeting: "Hi! I can help you book appointments. What date are you looking for?"
-  }
-};
-
+            agent: {
+              language: "en",
+              listen: {
+                provider: {
+                  type: "deepgram",
+                  model: "nova-3",
+                },
+              },
+              think: {
+                provider: {
+                  type: "open_ai",
+                  model: "gpt-4o-mini",
+                },
+                instructions: systemPrompt,
+                functions: Array.isArray(functionsArray) ? functionsArray : [],
+              },
+              speak: {
+                provider: {
+                  type: "deepgram",
+                  model: "aura-2-thalia-en",
+                },
+              },
+              greeting: "Thank you for calling, how can I help you today?",
+            },
+          };
 
           console.log("📋 Deepgram configuration summary:");
           console.log("   - Audio input: mulaw, 8000Hz");
           console.log("   - Audio output: mulaw, 8000Hz");
           console.log("   - Think model: gpt-4o-mini");
           console.log("   - Speak model: aura-2-thalia-en");
-          console.log("   - Functions available:", config.agent.think.functions.length);
-          console.log("   - Prompt length:", config.agent.think.prompt.length, "characters");
-          
+          console.log(
+            "   - Functions available:",
+            config.agent.think.functions.length
+          );
+          console.log(
+            "   - Prompt length:",
+            config.agent.think.prompt.length,
+            "characters"
+          );
+
           console.log(
             "📤 Sending Deepgram configuration:",
             JSON.stringify(config, null, 2)
           );
-          
+
           try {
             deepgramWs.send(JSON.stringify(config));
             console.log("✅ Configuration sent successfully to Deepgram");
           } catch (configError) {
-            console.error("❌ Error sending configuration to Deepgram:", configError);
+            console.error(
+              "❌ Error sending configuration to Deepgram:",
+              configError
+            );
             reject(configError);
             return;
           }
@@ -625,7 +694,8 @@ function getAvailableFunctions() {
     },
     {
       name: "get_available_slots",
-      description: "REQUIRED: Call this function whenever a customer asks about availability, booking, or appointments for any date. Use this to check real-time availability before discussing times.",
+      description:
+        "REQUIRED: Call this function whenever a customer asks about availability, booking, or appointments for any date. Use this to check real-time availability before discussing times.",
       parameters: {
         type: "object",
         properties: {
@@ -643,7 +713,8 @@ function getAvailableFunctions() {
     },
     {
       name: "create_booking",
-      description: "Create a confirmed appointment booking after customer has chosen a time",
+      description:
+        "Create a confirmed appointment booking after customer has chosen a time",
       parameters: {
         type: "object",
         properties: {
@@ -691,8 +762,12 @@ async function handleFunctionCall(
     switch (function_name) {
       case "get_services":
         console.log("🔍 Processing get_services request...");
-        console.log("📊 Raw services from config:", businessConfig.services.length, "services found");
-        
+        console.log(
+          "📊 Raw services from config:",
+          businessConfig.services.length,
+          "services found"
+        );
+
         result = businessConfig.services.map((s) => ({
           id: s.id,
           name: s.name,
@@ -700,8 +775,11 @@ async function handleFunctionCall(
           price: s.price,
           description: s.description,
         }));
-        
-        console.log("📋 Mapped services result:", JSON.stringify(result, null, 2));
+
+        console.log(
+          "📋 Mapped services result:",
+          JSON.stringify(result, null, 2)
+        );
         console.log("✅ get_services processing complete");
         break;
 
@@ -723,15 +801,18 @@ async function handleFunctionCall(
       function_call_id: functionCallData.function_call_id,
       result: JSON.stringify(result),
     };
-    
+
     console.log("🔧 About to send function response:");
     console.log("   - Function:", function_name);
     console.log("   - Result type:", typeof result);
     console.log("   - Result content:", JSON.stringify(result, null, 2));
     console.log("   - Stringified result:", JSON.stringify(result));
 
-    console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
-    
+    console.log(
+      "📤 Sending function response to Deepgram:",
+      JSON.stringify(response, null, 2)
+    );
+
     try {
       deepgramWs.send(JSON.stringify(response));
       console.log("✅ Function response sent successfully to Deepgram");
@@ -757,23 +838,32 @@ async function handleFunctionCall(
 // Get available appointment slots
 async function getAvailableSlots(businessConfig, params) {
   try {
-    console.log("🗓️ Getting available slots for:", JSON.stringify(params, null, 2));
+    console.log(
+      "🗓️ Getting available slots for:",
+      JSON.stringify(params, null, 2)
+    );
     const { date, service_id } = params;
     const business = businessConfig.business;
-    
+
     if (!business?.google_calendar_id) {
       console.error("❌ No Google Calendar connected for business");
-      return { error: 'Calendar not connected' };
+      return { error: "Calendar not connected" };
     }
 
     // Get service details and duration
     let serviceId = service_id;
     let service = null;
-    
+
     if (serviceId) {
-      service = businessConfig.services.find(s => s.id === serviceId);
+      service = businessConfig.services.find((s) => s.id === serviceId);
       if (service) {
-        console.log("📋 Using service:", service.name, "(Duration:", service.duration_minutes, "minutes)");
+        console.log(
+          "📋 Using service:",
+          service.name,
+          "(Duration:",
+          service.duration_minutes,
+          "minutes)"
+        );
       } else {
         console.error("❌ Service not found with ID:", serviceId);
         return { error: `Service not found: ${serviceId}` };
@@ -782,7 +872,13 @@ async function getAvailableSlots(businessConfig, params) {
       // Use first available service as default
       service = businessConfig.services[0];
       serviceId = service.id;
-      console.log("📋 Using default service:", service.name, "(Duration:", service.duration_minutes, "minutes)");
+      console.log(
+        "📋 Using default service:",
+        service.name,
+        "(Duration:",
+        service.duration_minutes,
+        "minutes)"
+      );
     } else {
       console.error("❌ No services available");
       return { error: "No services available" };
@@ -792,10 +888,10 @@ async function getAvailableSlots(businessConfig, params) {
     // The /api/internal/booking endpoint is used for actual booking creation
     const apiUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
     const response = await fetch(apiUrl, {
-      method: 'GET',
+      method: "GET",
       headers: {
-        'x-internal-secret': process.env.INTERNAL_API_SECRET
-      }
+        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+      },
     });
 
     const result = await response.json();
@@ -807,11 +903,11 @@ async function getAvailableSlots(businessConfig, params) {
     }
 
     // Extract just the time strings from the slots
-    const availableTimes = result.slots?.map(slot => slot.startTime) || [];
+    const availableTimes = result.slots?.map((slot) => slot.startTime) || [];
     console.log("✅ Available time slots:", availableTimes);
-    
+
     return {
-      available_slots: availableTimes
+      available_slots: availableTimes,
     };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);
@@ -826,28 +922,46 @@ async function createBooking(businessConfig, params) {
       "🎯 createBooking called with params:",
       JSON.stringify(params, null, 2)
     );
-    console.log("📋 Available services:", businessConfig.services.map(s => ({ id: s.id, name: s.name })));
-    
+    console.log(
+      "📋 Available services:",
+      businessConfig.services.map((s) => ({ id: s.id, name: s.name }))
+    );
+
     const { customer_name, service_id, date, time, customer_phone } = params;
 
     // Validate required parameters
     if (!customer_name || !service_id || !date || !time) {
-      console.error("❌ Missing required booking parameters:", { customer_name, service_id, date, time });
-      return { error: "Missing required information: name, service, date, and time are required" };
+      console.error("❌ Missing required booking parameters:", {
+        customer_name,
+        service_id,
+        date,
+        time,
+      });
+      return {
+        error:
+          "Missing required information: name, service, date, and time are required",
+      };
     }
 
     // Find the service (try by ID first, then by name as fallback)
     let service = businessConfig.services.find((s) => s.id === service_id);
     if (!service) {
       // Try to find by name (case-insensitive)
-      service = businessConfig.services.find((s) => 
-        s.name.toLowerCase() === service_id.toLowerCase()
+      service = businessConfig.services.find(
+        (s) => s.name.toLowerCase() === service_id.toLowerCase()
       );
     }
     if (!service) {
       console.error("❌ Service not found. Service ID/Name:", service_id);
-      console.error("📋 Available services:", businessConfig.services.map(s => `${s.id}: ${s.name}`));
-      return { error: `Service not found. Available services: ${businessConfig.services.map(s => s.name).join(', ')}` };
+      console.error(
+        "📋 Available services:",
+        businessConfig.services.map((s) => `${s.id}: ${s.name}`)
+      );
+      return {
+        error: `Service not found. Available services: ${businessConfig.services
+          .map((s) => s.name)
+          .join(", ")}`,
+      };
     }
     console.log("✅ Service found:", service.name, "(ID:", service.id, ")");
 
@@ -871,7 +985,12 @@ async function createBooking(businessConfig, params) {
     };
 
     console.log("📞 Calling internal Next.js booking API...");
-    console.log("🔗 API URL:", `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/api/internal/booking`);
+    console.log(
+      "🔗 API URL:",
+      `${
+        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+      }/api/internal/booking`
+    );
     console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
 
     // Call the internal Next.js booking API endpoint
@@ -885,8 +1004,12 @@ async function createBooking(businessConfig, params) {
       body: JSON.stringify(bookingData),
     });
 
-    console.log("📡 API Response status:", response.status, response.statusText);
-    
+    console.log(
+      "📡 API Response status:",
+      response.status,
+      response.statusText
+    );
+
     const result = await response.json();
     console.log("📋 API Response body:", JSON.stringify(result, null, 2));
 
