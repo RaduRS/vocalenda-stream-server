@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 // Load environment variables
 // In production, use system environment variables
 // In development, load from .env.local
-if (process.env.NODE_ENV !== "production") {
+if (process.env.NODE_ENV !== 'production') {
   dotenv.config({ path: ".env.local" });
 }
 
@@ -31,6 +31,7 @@ wss.on("connection", async (ws, req) => {
   let businessId = null;
   let callSid = null;
   let businessConfig = null;
+  let deepgramReady = false; // Track if Deepgram is ready to receive audio
 
   // Parse query parameters from the connection URL
   const query = url.parse(req.url, true).query;
@@ -85,7 +86,11 @@ wss.on("connection", async (ws, req) => {
             const deepgramData = JSON.parse(deepgramMessage.toString());
 
             // Handle different types of Deepgram messages
-            if (deepgramData.type === "Results") {
+            if (deepgramData.type === "SettingsApplied") {
+              // Deepgram is now ready to receive audio
+              console.log("Deepgram settings applied - ready to receive audio");
+              deepgramReady = true;
+            } else if (deepgramData.type === "Results") {
               // Speech-to-text results
               console.log(
                 "Transcript:",
@@ -126,16 +131,14 @@ wss.on("connection", async (ws, req) => {
           break;
 
         case "media":
-          // Forward audio to Deepgram
-          if (deepgramWs && deepgramWs.readyState === 1) {
+          // Forward audio to Deepgram only after SettingsApplied is received
+          if (deepgramWs && deepgramWs.readyState === 1 && deepgramReady) {
             // Deepgram Voice Agent expects raw binary audio data, not JSON
-            const audioBuffer = Buffer.from(data.media.payload, "base64");
+            const audioBuffer = Buffer.from(data.media.payload, 'base64');
             console.log(`Forwarding audio chunk: ${audioBuffer.length} bytes`);
             deepgramWs.send(audioBuffer);
           } else {
-            console.log(
-              `Deepgram not ready, readyState: ${deepgramWs?.readyState}`
-            );
+            console.log(`Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`);
           }
           break;
 
@@ -202,14 +205,11 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket(
-    "wss://agent.deepgram.com/v1/agent/converse",
-    {
-      headers: {
-        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-      },
-    }
-  );
+  const deepgramWs = new WebSocket("wss://agent.deepgram.com/v1/agent/converse", {
+    headers: {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+    },
+  });
 
   deepgramWs.on("open", () => {
     console.log("Connected to Deepgram Voice Agent");
@@ -254,10 +254,7 @@ async function initializeDeepgram(businessConfig, callContext) {
       },
     };
 
-    console.log(
-      "Sending Deepgram configuration:",
-      JSON.stringify(config, null, 2)
-    );
+    console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
     deepgramWs.send(JSON.stringify(config));
   });
 
@@ -266,9 +263,7 @@ async function initializeDeepgram(businessConfig, callContext) {
   });
 
   deepgramWs.on("close", (code, reason) => {
-    console.log(
-      `Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`
-    );
+    console.log(`Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`);
   });
 
   deepgramWs.on("message", (message) => {
