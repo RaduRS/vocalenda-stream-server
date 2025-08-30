@@ -273,6 +273,7 @@ async function initializeDeepgram(businessConfig, callContext) {
         },
       },
       agent: {
+        language: "en",
         listen: {
           provider: {
             type: "deepgram",
@@ -298,6 +299,21 @@ async function initializeDeepgram(businessConfig, callContext) {
 
     console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
     deepgramWs.send(JSON.stringify(config));
+    
+    // Set up keep-alive messages to maintain connection
+    const keepAliveInterval = setInterval(() => {
+      if (deepgramWs && deepgramWs.readyState === 1) {
+        deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
+        console.log("Sent keep-alive to Deepgram");
+      } else {
+        clearInterval(keepAliveInterval);
+      }
+    }, 5000);
+    
+    // Clean up interval when connection closes
+    deepgramWs.on("close", () => {
+      clearInterval(keepAliveInterval);
+    });
   });
 
   deepgramWs.on("error", (error) => {
