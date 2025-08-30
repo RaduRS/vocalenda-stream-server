@@ -42,6 +42,7 @@ wss.on("connection", async (ws, req) => {
 
         case "start":
           console.log("Media stream started:", data);
+          console.log("Media format:", data.start?.mediaFormat);
 
           // Extract parameters from Twilio
           const customParameters = data.start?.customParameters || {};
@@ -127,7 +128,10 @@ wss.on("connection", async (ws, req) => {
               type: "Audio",
               data: data.media.payload,
             };
+            console.log(`Forwarding audio chunk: ${data.media.payload.length} bytes`);
             deepgramWs.send(JSON.stringify(audioData));
+          } else {
+            console.log(`Deepgram not ready, readyState: ${deepgramWs?.readyState}`);
           }
           break;
 
@@ -194,14 +198,11 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket(
-    "wss://agent.deepgram.com/v1/agent/converse",
-    {
-      headers: {
-        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-      },
-    }
-  );
+  const deepgramWs = new WebSocket("wss://agent.deepgram.com/v1/agent/converse", {
+    headers: {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+    },
+  });
 
   deepgramWs.on("open", () => {
     console.log("Connected to Deepgram Voice Agent");
@@ -224,7 +225,7 @@ async function initializeDeepgram(businessConfig, callContext) {
       },
       agent: {
         listen: {
-          model: "nova-3",
+          model: "nova-2",
         },
         think: {
           provider: {
@@ -240,7 +241,20 @@ async function initializeDeepgram(businessConfig, callContext) {
       },
     };
 
+    console.log("Sending Deepgram configuration:", JSON.stringify(config, null, 2));
     deepgramWs.send(JSON.stringify(config));
+  });
+
+  deepgramWs.on("error", (error) => {
+    console.error("Deepgram WebSocket error in initializeDeepgram:", error);
+  });
+
+  deepgramWs.on("close", (code, reason) => {
+    console.log(`Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`);
+  });
+
+  deepgramWs.on("message", (message) => {
+    console.log("Deepgram message received:", message.toString());
   });
 
   return deepgramWs;
