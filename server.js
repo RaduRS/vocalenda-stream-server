@@ -347,7 +347,6 @@ async function initializeDeepgram(businessConfig, callContext) {
         const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
         const config = {
-          type: "Settings",
           audio: {
             input: {
               encoding: "linear16",
@@ -356,19 +355,15 @@ async function initializeDeepgram(businessConfig, callContext) {
             output: {
               encoding: "linear16",
               sample_rate: 24000,
+              container: "none",
             },
           },
           agent: {
-            language: "en",
             listen: {
               provider: {
                 type: "deepgram",
                 model: "nova-3",
               },
-              smart_format: true,
-              interim_results: true,
-              vad_events: true,
-              endpointing: 300,
             },
             think: {
               provider: {
@@ -383,9 +378,7 @@ async function initializeDeepgram(businessConfig, callContext) {
                 type: "deepgram",
                 model: "aura-2-thalia-en",
               },
-              buffer_size: 250,
             },
-
             greeting: "Thank you for calling, how can I help you today?"
           },
         };
