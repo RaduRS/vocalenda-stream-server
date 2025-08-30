@@ -409,6 +409,16 @@ async function initializeDeepgram(businessConfig, callContext) {
     // Wait for Welcome message before sending configuration (like official example)
     deepgramWs.on("message", (message) => {
       try {
+        // Check if this is binary data (audio) vs JSON message
+        if (message instanceof Buffer && message.length > 0) {
+          // Check if it looks like JSON by examining the first character
+          const firstChar = message[0];
+          if (firstChar !== 0x7B && firstChar !== 0x5B) { // Not '{' or '['
+            // This is binary audio data, ignore it in initialization
+            return;
+          }
+        }
+        
         const data = JSON.parse(message.toString());
 
         if (data.type === "Welcome") {
