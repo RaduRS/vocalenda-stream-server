@@ -21,11 +21,26 @@ const wss = new WebSocketServer({
   port: process.env.WS_PORT || 8080,
 });
 
+// Production monitoring
+let activeConnections = 0;
+let totalAudioPacketsProcessed = 0;
+let audioProcessingErrors = 0;
+
+// Log server stats every 5 minutes
+setInterval(() => {
+  console.log(`Server Stats - Active Connections: ${activeConnections}, Audio Packets: ${totalAudioPacketsProcessed}, Errors: ${audioProcessingErrors}`);
+  console.log(`Buffer Pool Stats:`, Object.fromEntries(
+    Array.from(AudioConverter.bufferPool.entries()).map(([key, pool]) => [key, pool.length])
+  ));
+}, 5 * 60 * 1000);
+
 console.log(`WebSocket server running on port ${process.env.WS_PORT || 8080}`);
+console.log('Production-ready audio conversion with monitoring enabled');
 
 // Handle WebSocket connections
 wss.on("connection", async (ws, req) => {
-  console.log("New WebSocket connection established");
+  activeConnections++;
+  console.log(`New WebSocket connection established (${activeConnections} active)`);
 
   let deepgramWs = null;
   let businessId = null;
@@ -86,23 +101,42 @@ wss.on("connection", async (ws, req) => {
             try {
               // Check if this is binary audio data
               if (Buffer.isBuffer(deepgramMessage)) {
-                console.log("Processing binary audio data from Deepgram");
-                
-                // If we're receiving audio, Deepgram is clearly ready
-                if (!deepgramReady) {
-                  console.log("🎉 Deepgram is sending audio - marking as ready!");
-                  deepgramReady = true;
-                }
-                
-                // This is binary audio data, forward to Twilio
-                const audioMessage = {
-                  event: "media",
-                  streamSid: data.start?.streamSid,
-                  media: {
-                    payload: deepgramMessage.toString('base64'),
-                  },
-                };
-                ws.send(JSON.stringify(audioMessage));
+                try {
+                  console.log("Processing binary audio data from Deepgram");
+                  
+                  // If we're receiving audio, Deepgram is clearly ready
+                  if (!deepgramReady) {
+                    console.log("🎉 Deepgram is sending audio - marking as ready!");
+                    deepgramReady = true;
+                  }
+                  
+                  const startTime = process.hrtime.bigint();
+                  
+                  // Convert linear16 audio from Deepgram to mulaw for Twilio
+                  const mulawBuffer = convertLinear16ToMulaw(deepgramMessage);
+                  
+                  const conversionTime = Number(process.hrtime.bigint() - startTime) / 1000000;
+                  
+                  totalAudioPacketsProcessed++;
+                   
+                   // Log performance metrics periodically
+                   if (Math.random() < 0.01) {
+                     console.log(`Outgoing audio conversion: ${conversionTime.toFixed(2)}ms for ${deepgramMessage.length} bytes`);
+                   }
+                   
+                   const audioMessage = {
+                     event: "media",
+                     streamSid: data.start?.streamSid,
+                     media: {
+                       payload: mulawBuffer.toString('base64'),
+                     },
+                   };
+                   ws.send(JSON.stringify(audioMessage));
+                 } catch (error) {
+                   audioProcessingErrors++;
+                   console.error('Error processing outgoing audio from Deepgram:', error);
+                   // Continue without crashing the connection
+                 }
                 return;
               }
               
@@ -200,9 +234,28 @@ wss.on("connection", async (ws, req) => {
         case "media":
           // Forward audio to Deepgram only after SettingsApplied is received
           if (deepgramWs && deepgramWs.readyState === 1 && deepgramReady) {
-            // Deepgram Voice Agent expects raw binary audio data, not JSON
-            const audioBuffer = Buffer.from(data.media.payload, 'base64');
-            deepgramWs.send(audioBuffer);
+            try {
+              const startTime = process.hrtime.bigint();
+              
+              // Convert mulaw audio from Twilio to linear16 for Deepgram
+              const mulawBuffer = Buffer.from(data.media.payload, 'base64');
+              const linear16Buffer = convertMulawToLinear16(mulawBuffer);
+              
+              const conversionTime = Number(process.hrtime.bigint() - startTime) / 1000000; // Convert to ms
+              
+              totalAudioPacketsProcessed++;
+               
+               // Log performance metrics periodically (every 100 conversions)
+               if (Math.random() < 0.01) {
+                 console.log(`Audio conversion performance: ${conversionTime.toFixed(2)}ms for ${mulawBuffer.length} bytes`);
+               }
+               
+               deepgramWs.send(linear16Buffer);
+            } catch (error) {
+                   audioProcessingErrors++;
+                   console.error('Error processing incoming audio:', error);
+                   // Continue without crashing the connection
+                 }
           } else {
             console.log(`Deepgram not ready, readyState: ${deepgramWs?.readyState}, settingsApplied: ${deepgramReady}`);
           }
@@ -221,7 +274,8 @@ wss.on("connection", async (ws, req) => {
   });
 
   ws.on("close", () => {
-    console.log("Twilio WebSocket connection closed");
+    activeConnections--;
+    console.log(`Twilio WebSocket connection closed (${activeConnections} active)`);
     if (deepgramWs) {
       deepgramWs.close();
     }
@@ -296,12 +350,12 @@ async function initializeDeepgram(businessConfig, callContext) {
           type: "Settings",
           audio: {
             input: {
-              encoding: "mulaw",
-              sample_rate: 8000,
+              encoding: "linear16",
+              sample_rate: 24000,
             },
             output: {
-              encoding: "mulaw",
-              sample_rate: 8000,
+              encoding: "linear16",
+              sample_rate: 24000,
               container: "wav",
             },
           },
@@ -329,7 +383,7 @@ async function initializeDeepgram(businessConfig, callContext) {
                 type: "deepgram",
                 model: "aura-2-thalia-en",
               },
-              buffer_size: 250,
+              buffer_size: 100,
             },
             options: {
               turn_detection: {
@@ -640,6 +694,135 @@ async function createBooking(businessConfig, params) {
     console.error("Error in createBooking:", error);
     return { error: "Booking failed" };
   }
+}
+
+// Production-ready audio conversion functions with proper error handling
+class AudioConverter {
+  static convertMulawToLinear16(mulawBuffer) {
+    try {
+      if (!Buffer.isBuffer(mulawBuffer) || mulawBuffer.length === 0) {
+        throw new Error('Invalid mulaw buffer provided');
+      }
+
+      const linear16Buffer = Buffer.alloc(mulawBuffer.length * 2);
+      
+      for (let i = 0; i < mulawBuffer.length; i++) {
+        const mulaw = mulawBuffer[i];
+        const linear = this.mulawToLinear(mulaw);
+        linear16Buffer.writeInt16LE(linear, i * 2);
+      }
+      
+      return linear16Buffer;
+    } catch (error) {
+      console.error('Error converting mulaw to linear16:', error);
+      // Return silence buffer as fallback
+      return Buffer.alloc(mulawBuffer?.length * 2 || 320);
+    }
+  }
+
+  static mulawToLinear(mulaw) {
+    // Standard ITU-T G.711 mulaw to linear conversion
+    const BIAS = 0x84;
+    const CLIP = 32635;
+    
+    mulaw = ~mulaw;
+    const sign = (mulaw & 0x80);
+    const exponent = (mulaw >> 4) & 0x07;
+    const mantissa = mulaw & 0x0F;
+    
+    let sample = mantissa << (exponent + 3);
+    sample += BIAS;
+    if (exponent !== 0) sample += (1 << (exponent + 2));
+    
+    return sign ? -sample : sample;
+  }
+
+  static convertLinear16ToMulaw(linear16Buffer) {
+    try {
+      if (!Buffer.isBuffer(linear16Buffer) || linear16Buffer.length === 0) {
+        throw new Error('Invalid linear16 buffer provided');
+      }
+
+      if (linear16Buffer.length % 2 !== 0) {
+        throw new Error('Linear16 buffer length must be even');
+      }
+
+      const mulawBuffer = Buffer.alloc(linear16Buffer.length / 2);
+      
+      for (let i = 0; i < linear16Buffer.length; i += 2) {
+        const linear = linear16Buffer.readInt16LE(i);
+        const mulaw = this.linearToMulaw(linear);
+        mulawBuffer[i / 2] = mulaw;
+      }
+      
+      return mulawBuffer;
+    } catch (error) {
+      console.error('Error converting linear16 to mulaw:', error);
+      // Return silence buffer as fallback
+      return Buffer.alloc(linear16Buffer?.length / 2 || 160);
+    }
+  }
+
+  static linearToMulaw(linear) {
+    // Standard ITU-T G.711 linear to mulaw conversion
+    const BIAS = 0x84;
+    const CLIP = 32635;
+    
+    if (linear > CLIP) linear = CLIP;
+    else if (linear < -CLIP) linear = -CLIP;
+    
+    const sign = (linear < 0) ? 0x80 : 0x00;
+    if (sign) linear = -linear;
+    linear += BIAS;
+    
+    let exponent = 7;
+    for (let expMask = 0x4000; (linear & expMask) === 0 && exponent > 0; exponent--, expMask >>= 1);
+    
+    const mantissa = (linear >> (exponent + 3)) & 0x0F;
+    const mulaw = ~(sign | (exponent << 4) | mantissa);
+    
+    return mulaw & 0xFF;
+  }
+
+  // Buffer pool for memory optimization
+  static bufferPool = new Map();
+  
+  static getPooledBuffer(size, type = 'linear16') {
+    const key = `${type}_${size}`;
+    if (!this.bufferPool.has(key)) {
+      this.bufferPool.set(key, []);
+    }
+    
+    const pool = this.bufferPool.get(key);
+    if (pool.length > 0) {
+      const buffer = pool.pop();
+      buffer.fill(0); // Clear the buffer
+      return buffer;
+    }
+    
+    return Buffer.alloc(size);
+  }
+  
+  static returnPooledBuffer(buffer, type = 'linear16') {
+    const key = `${type}_${buffer.length}`;
+    if (!this.bufferPool.has(key)) {
+      this.bufferPool.set(key, []);
+    }
+    
+    const pool = this.bufferPool.get(key);
+    if (pool.length < 10) { // Limit pool size
+      pool.push(buffer);
+    }
+  }
+}
+
+// Convenience functions for backward compatibility
+function convertMulawToLinear16(mulawBuffer) {
+  return AudioConverter.convertMulawToLinear16(mulawBuffer);
+}
+
+function convertLinear16ToMulaw(linear16Buffer) {
+  return AudioConverter.convertLinear16ToMulaw(linear16Buffer);
 }
 
 // Handle graceful shutdown
