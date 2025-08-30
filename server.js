@@ -572,10 +572,20 @@ function generateSystemPrompt(businessConfig, callContext) {
 
   prompt += `IMPORTANT BOOKING INSTRUCTIONS:\n`;
   prompt += `- Always use get_services first to get the current service list with IDs\n`;
+  prompt += `- When checking availability, use get_available_slots with the date and service_id\n`;
+  prompt += `- Present available time slots to the customer and let them choose\n`;
   prompt += `- When booking, use the exact service ID from the get_services response\n`;
   prompt += `- Always get customer name, phone number, preferred service, date, and time\n`;
   prompt += `- Use YYYY-MM-DD format for dates and HH:MM format for times (24-hour)\n`;
-  prompt += `- After getting all information, call create_booking with the exact parameters\n\n`;
+  prompt += `- After getting all information, call create_booking with the exact parameters\n`;
+  prompt += `- If get_available_slots returns an error, inform the customer and suggest alternatives\n\n`;
+  prompt += `BOOKING FLOW:\n`;
+  prompt += `1. Get customer's preferred service using get_services\n`;
+  prompt += `2. Get customer's preferred date\n`;
+  prompt += `3. Check availability using get_available_slots\n`;
+  prompt += `4. Present available times to customer\n`;
+  prompt += `5. Get customer's name and phone number\n`;
+  prompt += `6. Confirm booking details and create appointment\n\n`;
 
   prompt += `Always be polite, helpful, and professional. Guide customers through the booking process step by step.`;
 
@@ -709,25 +719,65 @@ async function handleFunctionCall(
 
 // Get available appointment slots
 async function getAvailableSlots(businessConfig, params) {
-  // This is a simplified implementation
-  // In a real app, you'd integrate with Google Calendar API
-  const { date, service_id } = params;
-
-  // Generate sample time slots (9 AM to 5 PM, every 30 minutes)
-  const slots = [];
-  for (let hour = 9; hour < 17; hour++) {
-    for (let minute = 0; minute < 60; minute += 30) {
-      const time = `${hour.toString().padStart(2, "0")}:${minute
-        .toString()
-        .padStart(2, "0")}`;
-      slots.push({
-        time,
-        available: Math.random() > 0.3, // 70% chance of being available
-      });
+  try {
+    console.log("🗓️ Getting available slots for:", JSON.stringify(params, null, 2));
+    const { date, service_id } = params;
+    const business = businessConfig.business;
+    
+    if (!business?.google_calendar_id) {
+      console.error("❌ No Google Calendar connected for business");
+      return { error: 'Calendar not connected' };
     }
-  }
 
-  return slots.filter((slot) => slot.available).map((slot) => slot.time);
+    // Get service details and duration
+    let serviceId = service_id;
+    let service = null;
+    
+    if (serviceId) {
+      service = businessConfig.services.find(s => s.id === serviceId);
+      if (service) {
+        console.log("📋 Using service:", service.name, "(Duration:", service.duration_minutes, "minutes)");
+      } else {
+        console.error("❌ Service not found with ID:", serviceId);
+        return { error: `Service not found: ${serviceId}` };
+      }
+    } else if (businessConfig.services.length > 0) {
+      // Use first available service as default
+      service = businessConfig.services[0];
+      serviceId = service.id;
+      console.log("📋 Using default service:", service.name, "(Duration:", service.duration_minutes, "minutes)");
+    } else {
+      console.error("❌ No services available");
+      return { error: "No services available" };
+    }
+
+    // Call calendar slots API to check availability (NOT for booking)
+    // The /api/internal/booking endpoint is used for actual booking creation
+    const apiUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'x-internal-secret': process.env.INTERNAL_API_SECRET
+      }
+    });
+
+    const result = await response.json();
+    console.log("📅 Calendar API response:", JSON.stringify(result, null, 2));
+
+    if (!response.ok) {
+      console.error("❌ Calendar API error:", result);
+      return { error: result.error || "Failed to get available slots" };
+    }
+
+    // Extract just the time strings from the slots
+    const availableTimes = result.slots?.map(slot => slot.startTime) || [];
+    console.log("✅ Available time slots:", availableTimes);
+    
+    return availableTimes;
+  } catch (error) {
+    console.error("❌ Error getting available slots:", error);
+    return { error: "Failed to get available slots" };
+  }
 }
 
 // Create a new booking by calling the internal Next.js API endpoint
