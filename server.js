@@ -72,14 +72,23 @@ wss.on("connection", async (ws, req) => {
             return;
           }
 
-          // Initialize Deepgram connection
-          deepgramWs = await initializeDeepgram(businessConfig, {
-            businessId,
-            callSid: callSid || "",
-            callerPhone,
-            businessPhone,
-            timezone: businessConfig.business?.timezone || timezone || "UTC",
-          });
+          // Initialize Deepgram connection with proper error handling
+          try {
+            console.log("🔄 Initializing Deepgram connection...");
+            deepgramWs = await initializeDeepgram(businessConfig, {
+              businessId,
+              callSid: callSid || "",
+              callerPhone,
+              businessPhone,
+              timezone: businessConfig.business?.timezone || timezone || "UTC",
+            });
+            console.log("✅ Deepgram connection initialized successfully");
+            console.log("Final readyState:", deepgramWs.readyState);
+          } catch (error) {
+            console.error("❌ Failed to initialize Deepgram:", error);
+            ws.close();
+            return;
+          }
 
           // Set up Deepgram message handling
           deepgramWs.on("message", (deepgramMessage) => {
@@ -270,8 +279,12 @@ wss.on("connection", async (ws, req) => {
           break;
 
         case "media":
-          // Forward audio to Deepgram only after SettingsApplied is received
-          if (deepgramWs && deepgramWs.readyState === 1 && deepgramReady) {
+          // Forward audio to Deepgram only when connection is ready
+          if (
+            deepgramWs &&
+            deepgramWs.readyState === WebSocket.OPEN &&
+            deepgramReady
+          ) {
             // Validate incoming audio data
             if (!data.media?.payload) {
               console.warn("⚠️ Received media event without payload");
@@ -369,112 +382,122 @@ async function loadBusinessConfig(businessId) {
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
-  const deepgramWs = new WebSocket(
-    "wss://agent.deepgram.com/v1/agent/converse",
-    {
-      headers: {
-        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-      },
-    }
-  );
-
-  deepgramWs.on("open", () => {
-    console.log(
-      "Connected to Deepgram Voice Agent - waiting for Welcome message"
+  return new Promise((resolve, reject) => {
+    const deepgramWs = new WebSocket(
+      "wss://agent.deepgram.com/v1/agent/converse",
+      ["token", process.env.DEEPGRAM_API_KEY]
     );
-  });
 
-  // Wait for Welcome message before sending configuration (like official example)
-  deepgramWs.on("message", (message) => {
-    try {
-      const data = JSON.parse(message.toString());
+    deepgramWs.on("open", () => {
+      console.log(
+        "✅ Deepgram WebSocket connected successfully - waiting for Welcome message"
+      );
+      console.log("Connection readyState:", deepgramWs.readyState);
+    });
 
-      if (data.type === "Welcome") {
-        console.log("✅ Welcome message received - sending configuration");
+    // Wait for Welcome message before sending configuration (like official example)
+    deepgramWs.on("message", (message) => {
+      try {
+        const data = JSON.parse(message.toString());
 
-        // Send initial configuration after Welcome (like official example)
-        const systemPrompt = generateSystemPrompt(businessConfig, callContext);
+        if (data.type === "Welcome") {
+          console.log("✅ Welcome message received - sending configuration");
 
-        const config = {
-          type: "Settings",
-          language: "en",
-          audio: {
-            input: {
-              encoding: "mulaw",
-              sample_rate: 8000,
-            },
-            output: {
-              encoding: "mulaw",
-              sample_rate: 8000,
-              container: "none",
-            },
-          },
-          agent: {
-            listen: {
-              provider: {
-                type: "deepgram",
-                model: "nova-3",
+          // Send initial configuration after Welcome (like official example)
+          const systemPrompt = generateSystemPrompt(
+            businessConfig,
+            callContext
+          );
+
+          const config = {
+            type: "Settings",
+            audio: {
+              input: {
+                encoding: "mulaw",
+                sample_rate: 8000,
+              },
+              output: {
+                encoding: "mulaw",
+                sample_rate: 8000,
+                container: "none",
               },
             },
-            think: {
-              provider: {
-                type: "open_ai",
-                model: "gpt-4o-mini",
+            agent: {
+              language: "en",
+              listen: {
+                provider: {
+                  type: "deepgram",
+                  model: "nova-3",
+                },
               },
-              prompt: systemPrompt,
-              functions: getAvailableFunctions(),
-            },
-            speak: {
-              provider: {
-                type: "deepgram",
-                model: "aura-2-thalia-en",
+              think: {
+                provider: {
+                  type: "open_ai",
+                  model: "gpt-4o-mini",
+                },
+                prompt: systemPrompt,
+                functions: getAvailableFunctions(),
               },
+              speak: {
+                provider: {
+                  type: "deepgram",
+                  model: "aura-2-thalia-en",
+                },
+              },
+              greeting: "Thank you for calling, how can I help you today?",
             },
-            greeting: "Thank you for calling, how can I help you today?",
-          },
-        };
+          };
 
-        console.log(
-          "Sending Deepgram configuration:",
-          JSON.stringify(config, null, 2)
-        );
-        deepgramWs.send(JSON.stringify(config));
+          console.log(
+            "Sending Deepgram configuration:",
+            JSON.stringify(config, null, 2)
+          );
+          deepgramWs.send(JSON.stringify(config));
 
-        // Set up keep-alive messages to maintain connection
-        const keepAliveInterval = setInterval(() => {
-          if (deepgramWs && deepgramWs.readyState === 1) {
-            deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
-            console.log("Sent keep-alive to Deepgram");
-          } else {
+          // Set up keep-alive messages to maintain connection
+          const keepAliveInterval = setInterval(() => {
+            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+              deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
+              console.log("Sent keep-alive to Deepgram");
+            } else {
+              clearInterval(keepAliveInterval);
+            }
+          }, 5000);
+
+          // Clean up interval when connection closes
+          deepgramWs.on("close", () => {
             clearInterval(keepAliveInterval);
-          }
-        }, 5000);
+          });
 
-        // Clean up interval when connection closes
-        deepgramWs.on("close", () => {
-          clearInterval(keepAliveInterval);
-        });
+          // Resolve the promise with the connected WebSocket
+          resolve(deepgramWs);
+        }
+      } catch (error) {
+        console.error("Error parsing Deepgram initialization message:", error);
       }
-    } catch (error) {
-      // This message handler is only for Welcome - other messages handled in main connection
-      // Ignore parsing errors here as binary audio will fail JSON parsing
-    }
+    });
+
+    deepgramWs.on("error", (error) => {
+      console.error("Deepgram WebSocket error in initializeDeepgram:", error);
+      reject(error);
+    });
+
+    deepgramWs.on("close", (code, reason) => {
+      console.log(
+        `Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`
+      );
+      if (code !== 1000) {
+        reject(new Error(`WebSocket closed with code ${code}: ${reason}`));
+      }
+    });
+
+    // Set a timeout for connection establishment
+    setTimeout(() => {
+      if (deepgramWs.readyState !== WebSocket.OPEN) {
+        reject(new Error("Deepgram connection timeout"));
+      }
+    }, 10000); // 10 second timeout
   });
-
-  deepgramWs.on("error", (error) => {
-    console.error("Deepgram WebSocket error in initializeDeepgram:", error);
-  });
-
-  deepgramWs.on("close", (code, reason) => {
-    console.log(
-      `Deepgram WebSocket closed in initializeDeepgram. Code: ${code}, Reason: ${reason}`
-    );
-  });
-
-  // Message handling is done in the main connection handler
-  // to avoid duplicate handlers and conflicts
-
-  return deepgramWs;
 }
 
 // Generate system prompt for the AI
