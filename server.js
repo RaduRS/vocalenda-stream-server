@@ -412,6 +412,7 @@ async function initializeDeepgram(businessConfig, callContext) {
                 input: {
                   encoding: "mulaw",
                   sample_rate: 8000,
+                  container: "none",
                 },
                 output: {
                   encoding: "mulaw",
@@ -425,6 +426,9 @@ async function initializeDeepgram(businessConfig, callContext) {
                   provider: {
                     type: "deepgram",
                     model: "nova-3",
+                    smart_format: true,
+                    interim_results: false,
+                    endpointing: true,
                   },
                 },
                 think: {
