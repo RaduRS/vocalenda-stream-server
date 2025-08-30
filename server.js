@@ -218,7 +218,7 @@ async function initializeDeepgram(businessConfig, callContext) {
     const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
     const config = {
-      type: "SettingsConfiguration",
+      type: "Settings",
       audio: {
         input: {
           encoding: "mulaw",
