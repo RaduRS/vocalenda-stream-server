@@ -808,6 +808,14 @@ async function handleFunctionCall(
   functionCallData,
   businessConfig
 ) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
+  console.log(`[${timestamp}] 🔧 Function call received:`, JSON.stringify(functionCallData, null, 2));
+  console.log(`[${timestamp}] 📋 Function name:`, functionCallData?.function_name);
+  console.log(`[${timestamp}] 📊 Parameters:`, JSON.stringify(functionCallData?.parameters, null, 2));
+  console.log(`[${timestamp}] 🏢 Business config exists:`, !!businessConfig);
+  console.log(`[${timestamp}] 🌐 WebSocket state:`, deepgramWs?.readyState);
+  
   try {
     console.log(
       "🔧 Function call received:",
@@ -892,6 +900,13 @@ async function handleFunctionCall(
 
 // Get available appointment slots
 async function getAvailableSlots(businessConfig, params) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🚀 STARTING getAvailableSlots with params:`, JSON.stringify(params, null, 2));
+  console.log(`[${timestamp}] 🏢 Business config:`, businessConfig?.business?.name);
+  console.log(`[${timestamp}] 📋 Services count:`, businessConfig?.services?.length);
+  console.log(`[${timestamp}] 🌐 Site URL:`, process.env.NEXT_PUBLIC_SITE_URL);
+  console.log(`[${timestamp}] 🔑 Secret exists:`, !!process.env.INTERNAL_API_SECRET);
+  
   try {
     console.log("🗓️ Getting available slots for:", JSON.stringify(params, null, 2));
     const { date, service_id } = params;
@@ -927,15 +942,29 @@ async function getAvailableSlots(businessConfig, params) {
     // Call calendar slots API to check availability (NOT for booking)
     // The /api/internal/booking endpoint is used for actual booking creation
     const apiUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    
+    console.log(`[${timestamp}] 🌐 About to make API call:`);
+    console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
+    console.log(`[${timestamp}] 🔑 Secret exists:`, !!process.env.INTERNAL_API_SECRET);
+    console.log(`[${timestamp}] 🏢 Business ID:`, business.id);
+    console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
+    console.log(`[${timestamp}] 📅 Date:`, date);
+    
     const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'x-internal-secret': process.env.INTERNAL_API_SECRET
       }
     });
+    
+    console.log(`[${timestamp}] 📡 API Response status:`, response.status);
+    console.log(`[${timestamp}] 📡 API Response ok:`, response.ok);
 
     const result = await response.json();
-    console.log("📅 Calendar API response:", JSON.stringify(result, null, 2));
+    console.log(`[${timestamp}] 📅 Calendar API response:`, JSON.stringify(result, null, 2));
+    console.log(`[${timestamp}] 📊 Response type:`, typeof result);
+    console.log(`[${timestamp}] 📊 Has slots:`, !!result.slots);
+    console.log(`[${timestamp}] 📊 Slots count:`, result.slots?.length || 0);
 
     if (!response.ok) {
       console.error("❌ Calendar API error:", result);
