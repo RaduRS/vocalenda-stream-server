@@ -937,12 +937,26 @@ async function getAvailableSlots(businessConfig, params) {
     let service = null;
     
     if (serviceId) {
+      // First try to find by ID (UUID)
       service = businessConfig.services.find(s => s.id === serviceId);
+      
+      // If not found by ID, try to find by name (case-insensitive)
+      if (!service) {
+        service = businessConfig.services.find(s => 
+          s.name.toLowerCase() === serviceId.toLowerCase()
+        );
+        if (service) {
+          serviceId = service.id; // Use the actual UUID
+          console.log(`📋 Found service by name '${service_id}' -> ID: ${serviceId}`);
+        }
+      }
+      
       if (service) {
         console.log("📋 Using service:", service.name, "(Duration:", service.duration_minutes, "minutes)");
       } else {
-        console.error("❌ Service not found with ID:", serviceId);
-        return { error: `Service not found: ${serviceId}` };
+        console.error("❌ Service not found with ID/Name:", serviceId);
+        console.error("📋 Available services:", businessConfig.services.map(s => `${s.name} (${s.id})`));
+        return { error: `Service not found: ${serviceId}. Available services: ${businessConfig.services.map(s => s.name).join(', ')}` };
       }
     } else if (businessConfig.services.length > 0) {
       // Use first available service as default
@@ -1023,13 +1037,16 @@ async function createBooking(businessConfig, params) {
       service = businessConfig.services.find((s) => 
         s.name.toLowerCase() === service_id.toLowerCase()
       );
+      if (service) {
+        console.log(`📋 Booking - Found service by name '${service_id}' -> ID: ${service.id}`);
+      }
     }
     if (!service) {
       console.error("❌ Service not found. Service ID/Name:", service_id);
       console.error("📋 Available services:", businessConfig.services.map(s => `${s.id}: ${s.name}`));
       return { error: `Service not found. Available services: ${businessConfig.services.map(s => s.name).join(', ')}` };
     }
-    console.log("✅ Service found:", service.name, "(ID:", service.id, ")");
+    console.log("✅ Booking - Service found:", service.name, "(ID:", service.id, ")");
 
     // Calculate start and end times
     const appointmentDateTime = `${date}T${time}:00`;
