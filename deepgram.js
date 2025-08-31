@@ -264,6 +264,12 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
             data.agent || "No agent config"
           );
 
+          // 🚨 CRITICAL: Remove the message handler to prevent duplicates
+          deepgramWs.removeAllListeners('message');
+          console.log(
+            `[${timestamp}] 🔇 REMOVED: Initialization message handler to prevent duplicates`
+          );
+
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
         } else if (data.type === "FunctionCallRequest") {

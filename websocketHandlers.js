@@ -90,61 +90,51 @@ export function handleWebSocketConnection(ws, req) {
           // Handle Deepgram messages
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
-              const messageStr = deepgramMessage.toString();
+              const timestamp = new Date().toISOString();
 
-              // Additional check: if it doesn't look like JSON, treat as binary
-              if (
-                !messageStr.trim().startsWith("{") &&
-                !messageStr.trim().startsWith("[")
-              ) {
-                console.log(
-                  `Processing non-JSON data as binary audio (${deepgramMessage.length} bytes)`
-                );
-
-                // Validate audio data integrity
-                if (deepgramMessage.length === 0) {
-                  console.warn(
-                    "⚠️ Received empty non-JSON audio buffer from Deepgram"
-                  );
+              // 🚨 FIX: Better binary detection
+              if (Buffer.isBuffer(deepgramMessage)) {
+                const messageStr = deepgramMessage.toString('utf8');
+                
+                // Skip binary or malformed data
+                if (deepgramMessage.length === 0 || 
+                    messageStr.includes('\x00') || 
+                    messageStr.includes('�') ||
+                    (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('['))) {
+                  
+                  // Forward audio to Twilio
+                  if (data.start?.streamSid && deepgramReady) {
+                    try {
+                      const audioMessage = {
+                        event: "media", 
+                        streamSid: data.start.streamSid,
+                        media: { payload: deepgramMessage.toString("base64") }
+                      };
+                      ws.send(JSON.stringify(audioMessage));
+                    } catch (error) {
+                      console.error("❌ Audio error:", error);
+                    }
+                  }
                   return;
                 }
 
-                // If we're receiving audio, Deepgram is clearly ready
-                if (!deepgramReady) {
-                  console.log(
-                    "🎉 Deepgram is sending audio - marking as ready!"
-                  );
-                  deepgramReady = true;
-                }
-
-                // Validate that we have a valid stream ID
-                if (!data.start?.streamSid) {
-                  console.warn(
-                    "⚠️ No streamSid available for non-JSON audio forwarding"
-                  );
-                  return;
-                }
-
-                // This is likely binary audio data, forward to Twilio with validation
+                // Try to parse JSON
+                let deepgramData;
                 try {
-                  const audioMessage = {
-                    event: "media",
-                    streamSid: data.start.streamSid,
-                    media: {
-                      payload: deepgramMessage.toString("base64"),
-                    },
-                  };
-                  ws.send(JSON.stringify(audioMessage));
-                } catch (error) {
-                  console.error(
-                    "❌ Error forwarding non-JSON audio to Twilio:",
-                    error
-                  );
+                  deepgramData = JSON.parse(messageStr);
+                } catch (parseError) {
+                  console.warn("⚠️ JSON parse failed - treating as audio");
+                  return;
                 }
-                return;
-              }
-
-              const deepgramData = JSON.parse(messageStr);
+              } else {
+                 // Handle non-buffer messages (shouldn't happen but just in case)
+                 try {
+                   deepgramData = JSON.parse(deepgramMessage.toString());
+                 } catch (parseError) {
+                   console.warn("⚠️ Non-buffer JSON parse failed - treating as audio");
+                   return;
+                 }
+               }
 
               // This is a JSON message - log it fully with timestamp
               console.log(
@@ -159,6 +149,13 @@ export function handleWebSocketConnection(ws, req) {
               console.log(
                 `[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`
               );
+
+              // 🚨 FIX: Filter out unwanted message types
+              const ignoredTypes = ['History', 'UserStartedSpeaking', 'UserStoppedSpeaking', 'AgentAudioDone'];
+              if (ignoredTypes.includes(deepgramData.type)) {
+                console.log(`[${timestamp}] 🔇 IGNORED: ${deepgramData.type} - not processing`);
+                return;
+              }
 
               // Handle different types of Deepgram messages
               if (deepgramData.type === "SettingsApplied") {
