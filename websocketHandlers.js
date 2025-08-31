@@ -87,6 +87,10 @@ export function handleWebSocketConnection(ws, req) {
             return;
           }
 
+          // 🚨 FIX: Set deepgramReady to true immediately since SettingsApplied was already processed in deepgram.js
+          deepgramReady = true;
+          console.log(`[${new Date().toISOString()}] 🎯 READY: deepgramReady set to true after successful initialization`);
+
           // Handle Deepgram messages
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
