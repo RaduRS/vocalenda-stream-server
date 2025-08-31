@@ -95,10 +95,13 @@ wss.on("connection", async (ws, req) => {
           // Set up Deepgram message handling
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
+              // Add timestamp to all logs
+              const timestamp = new Date().toISOString();
+              
               // Add comprehensive logging first
-              console.log("🔍 RAW MESSAGE TYPE:", typeof deepgramMessage);
-              console.log("🔍 IS BUFFER:", Buffer.isBuffer(deepgramMessage));
-              console.log("🔍 MESSAGE LENGTH:", deepgramMessage.length);
+              console.log(`[${timestamp}] 🔍 RAW MESSAGE TYPE:`, typeof deepgramMessage);
+              console.log(`[${timestamp}] 🔍 IS BUFFER:`, Buffer.isBuffer(deepgramMessage));
+              console.log(`[${timestamp}] 🔍 MESSAGE LENGTH:`, deepgramMessage.length);
               
               if (!Buffer.isBuffer(deepgramMessage)) {
                 console.log("🔍 NON-BUFFER MESSAGE:", deepgramMessage.toString());
@@ -209,32 +212,30 @@ wss.on("connection", async (ws, req) => {
 
               const deepgramData = JSON.parse(messageStr);
               
-              // This is a JSON message - log it fully
-              console.log("📨 JSON MESSAGE FROM DEEPGRAM:", messageStr);
-              console.log("=== PARSED DEEPGRAM JSON ===");
+              // This is a JSON message - log it fully with timestamp
+              console.log(`[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`, messageStr);
+              console.log(`[${timestamp}] === PARSED DEEPGRAM JSON ===`);
               console.log(JSON.stringify(deepgramData, null, 2));
-              console.log("=== END PARSED JSON ===");
+              console.log(`[${timestamp}] === END PARSED JSON ===`);
+              
+              // Log the event type prominently
+              console.log(`[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`);
 
             // Handle different types of Deepgram messages
             if (deepgramData.type === "SettingsApplied") {
                 // Deepgram is now ready to receive audio
-                console.log(
-                  "✅ Deepgram settings applied - ready to receive audio"
-                );
-                console.log(
-                  "Audio settings confirmed:",
-                  deepgramData.audio || "No audio settings in response"
-                );
-                deepgramReady = true;
-
-                // Greeting is now handled automatically by the agent configuration
-                console.log("Agent is ready with automatic greeting");
+                console.log(`[${timestamp}] ✅ SETTINGS_APPLIED: Deepgram ready to receive audio`);
+                 console.log(`[${timestamp}] 🔧 Audio settings:`, deepgramData.audio || "No audio settings");
+                 console.log(`[${timestamp}] 🤖 Agent config:`, deepgramData.agent || "No agent config");
+                 deepgramReady = true;
+                 console.log(`[${timestamp}] 🎙️ Agent ready with automatic greeting`);
               } else if (deepgramData.type === "Welcome") {
-                console.log("✅ Deepgram Welcome message received");
+                console.log(`[${timestamp}] ✅ WELCOME: Deepgram connection established`);
               } else if (deepgramData.type === "Results") {
                 // Speech-to-text results
                 const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
-                console.log("📝 Transcript:", transcript);
+                console.log(`[${timestamp}] 📝 RESULTS: Transcript:`, transcript);
+                console.log(`[${timestamp}] 🔍 Full Results:`, JSON.stringify(deepgramData, null, 2));
                 
                 // Enhanced detection for booking triggers
                 if (transcript) {
@@ -246,8 +247,8 @@ wss.on("connection", async (ws, req) => {
                   const hasName = namePattern.test(transcript) || /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(transcript);
                   
                   if (hasBookingKeyword) {
-                    console.log("🎯 BOOKING KEYWORD DETECTED:", transcript);
-                    console.log("🤖 AI should call get_available_slots function soon!");
+                    console.log(`[${timestamp}] 🎯 BOOKING_KEYWORD_DETECTED:`, transcript);
+                    console.log(`[${timestamp}] 🤖 EXPECTING: get_available_slots function call soon!`);
                     
                     // Set expectation for function call
                     expectingFunctionCall = true;
@@ -269,20 +270,17 @@ wss.on("connection", async (ws, req) => {
                   }
                   
                   if (hasName) {
-                    console.log("👤 CUSTOMER NAME DETECTED:", transcript);
-                    console.log("🚨 Next booking request should trigger function call!");
+                    console.log(`[${timestamp}] 👤 CUSTOMER_NAME_DETECTED:`, transcript);
+                    console.log(`[${timestamp}] 🚨 NEXT: Booking request should trigger function call!`);
                   }
                 }
               } else if (deepgramData.type === "SpeechStarted") {
-                // User started speaking
-                console.log("🎤 User started speaking");
+                console.log(`[${timestamp}] 🎤 SPEECH_STARTED: User began speaking`);
               } else if (deepgramData.type === "UtteranceEnd") {
-                // User finished speaking
-                console.log("🔇 User finished speaking");
-                console.log("🧠 AI should now be thinking and potentially making function calls...");
+                console.log(`[${timestamp}] 🔇 UTTERANCE_END: User finished speaking`);
+                console.log(`[${timestamp}] 🧠 EXPECTING: AgentThinking → FunctionCall or TtsStart`);
               } else if (deepgramData.type === "TtsAudio") {
-                // AI response audio - forward to Twilio
-                console.log("🔊 Received TTS audio from Deepgram - AI is responding");
+                console.log(`[${timestamp}] 🔊 TTS_AUDIO: AI sending audio response (${deepgramData.data?.length || 0} chars)`);
                 const audioMessage = {
                   event: "media",
                   streamSid: data.start?.streamSid,
@@ -292,28 +290,27 @@ wss.on("connection", async (ws, req) => {
                 };
                 ws.send(JSON.stringify(audioMessage));
               } else if (deepgramData.type === "AgentThinking") {
-                console.log("🧠 AI is thinking...");
-                console.log("🔍 Thinking context:", deepgramData.text || deepgramData.content || 'No thinking details provided');
-                console.log("⏰ This is when function calls should happen!");
+                console.log(`[${timestamp}] 🧠 AGENT_THINKING: AI processing...`);
+                console.log(`[${timestamp}] 🔍 Thinking details:`, deepgramData.text || deepgramData.content || deepgramData.thinking || 'No thinking details');
+                console.log(`[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`);
               } else if (deepgramData.type === "TtsStart") {
-                console.log("🎙️ AI is generating speech...");
+                console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
               } else if (deepgramData.type === "TtsText") {
-                console.log("💬 AI text response:", deepgramData.text);
+                console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
                 // Check if AI is mentioning availability without calling function
                 if (deepgramData.text && (deepgramData.text.toLowerCase().includes('available') || 
                                          deepgramData.text.toLowerCase().includes('check') ||
                                          deepgramData.text.toLowerCase().includes('let me see'))) {
-                  console.log("🚨 WARNING: AI mentioned checking availability but may not have called function!");
+                  console.log(`[${timestamp}] 🚨 WARNING: AI mentioned availability but NO FUNCTION CALL detected!`);
                 }
               } else if (deepgramData.type === "AgentResponse") {
-                console.log("🤖 Agent response:", deepgramData.response || deepgramData.text || 'No response text');
+                console.log(`[${timestamp}] 🤖 AGENT_RESPONSE:`, deepgramData.response || deepgramData.text || 'No response text');
               } else if (deepgramData.type === "FunctionCall") {
-                // Handle tool calls
-                console.log("🚨🚨 FUNCTION CALL DETECTED! 🚨🚨");
-                console.log("✅ SUCCESS: AI is calling a function as expected!");
-                console.log("Function name:", deepgramData.function_name);
-                console.log("Parameters:", JSON.stringify(deepgramData.parameters, null, 2));
-                console.log("🔧 Full function call data:", JSON.stringify(deepgramData, null, 2));
+                console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL DETECTED! 🚨🚨`);
+                console.log(`[${timestamp}] ✅ SUCCESS: AI calling function as expected!`);
+                console.log(`[${timestamp}] 🔧 Function:`, deepgramData.function_name);
+                console.log(`[${timestamp}] 📋 Parameters:`, JSON.stringify(deepgramData.parameters, null, 2));
+                console.log(`[${timestamp}] 📦 Full payload:`, JSON.stringify(deepgramData, null, 2));
                 
                 // Clear expectation since function call happened
                 expectingFunctionCall = false;
@@ -323,24 +320,26 @@ wss.on("connection", async (ws, req) => {
                 }
                 
                 if (deepgramWs && businessConfig) {
-                  console.log("🔧 Calling handleFunctionCall...");
+                  console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall...`);
                   await handleFunctionCall(deepgramWs, deepgramData, businessConfig);
-                  console.log("🔧 handleFunctionCall completed");
+                  console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall`);
                 } else {
-                  console.error("❌ Cannot handle function call - missing deepgramWs or businessConfig");
-                  console.log("   - deepgramWs:", !!deepgramWs);
-                  console.log("   - businessConfig:", !!businessConfig);
+                  console.error(`[${timestamp}] ❌ CANNOT handle function call - missing dependencies`);
+                  console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
+                  console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
                 }
               } else if (deepgramData.type === "Error") {
-                console.error("❌ Deepgram Error:", deepgramData);
+                console.error(`[${timestamp}] ❌ DEEPGRAM_ERROR:`, deepgramData);
               } else if (deepgramData.type === "Warning") {
-                console.warn("⚠️ Deepgram Warning:", deepgramData);
+                console.warn(`[${timestamp}] ⚠️ DEEPGRAM_WARNING:`, deepgramData);
+              } else if (deepgramData.type === "ConversationText") {
+                console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, deepgramData.text || deepgramData.content);
+              } else if (deepgramData.type === "FunctionResponse") {
+                console.log(`[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`);
+                console.log(`[${timestamp}] 📋 Response data:`, JSON.stringify(deepgramData, null, 2));
               } else {
-                console.log(
-                  "❓ Unknown Deepgram message type:",
-                  deepgramData.type
-                );
-                console.log("Full message:", deepgramData);
+                console.log(`[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`);
+                console.log(`[${timestamp}] 📦 Full message:`, JSON.stringify(deepgramData, null, 2));
               }
             } catch (error) {
               console.error("❌ Error parsing Deepgram message:", error);
@@ -495,41 +494,47 @@ async function initializeDeepgram(businessConfig, callContext) {
     // Wait for Welcome message before sending configuration (like official example)
     deepgramWs.on("message", (message) => {
       try {
+        const timestamp = new Date().toISOString();
+        
         // Check if this is binary data (audio) vs JSON message
         if (message instanceof Buffer && message.length > 0) {
           const messageStr = message.toString();
           // Check if it looks like JSON by examining the content
           if (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('[')) {
-            // This is binary audio data, ignore it in initialization
+            // This is binary audio data, not a JSON message
+            console.log(`[${timestamp}] 🔊 INIT: Received binary audio from Deepgram (${message.length} bytes)`);
             return;
           }
           // Additional check for binary patterns
           if (messageStr.includes('\x00') || messageStr.includes('\xFF') || /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)) {
             // Contains binary characters, ignore it in initialization
+            console.log(`[${timestamp}] 🔊 INIT: Ignoring binary data in initialization`);
             return;
           }
         }
         
         const data = JSON.parse(message.toString());
+        console.log(`[${timestamp}] 📨 INIT: Deepgram message:`, data.type);
+        console.log(`[${timestamp}] 📦 INIT: Full data:`, JSON.stringify(data, null, 2));
 
         if (data.type === "Welcome") {
-          console.log("✅ Welcome message received - sending configuration");
+          console.log(`[${timestamp}] ✅ WELCOME: Received - sending agent configuration...`);
 
-          // Send initial configuration after Welcome (like official example)
+          // Generate system prompt
           const systemPrompt = generateSystemPrompt(
             businessConfig,
             callContext
           );
           
-          console.log("📝 Generated system prompt length:", systemPrompt.length, "characters");
-          console.log("📝 System prompt preview (first 500 chars):", systemPrompt.substring(0, 500) + "...");
-          console.log("🔧 FULL SYSTEM PROMPT:");
+          console.log(`[${timestamp}] 📝 PROMPT: Generated length:`, systemPrompt.length, "characters");
+          console.log(`[${timestamp}] 📝 PROMPT: Preview (first 500 chars):`, systemPrompt.substring(0, 500) + "...");
+          console.log(`[${timestamp}] 🔧 PROMPT: Full content:`);
           console.log(systemPrompt);
-          console.log("🔧 END SYSTEM PROMPT");
-          console.log("🎯 Key function calling rules are included in prompt above");
+          console.log(`[${timestamp}] 🔧 PROMPT: End of content`);
+          console.log(`[${timestamp}] 🎯 PROMPT: Function calling rules included:`, systemPrompt.includes("get_available_slots"));
 
           const functionsArray = getAvailableFunctions();
-          console.log("   - Functions available:", Array.isArray(functionsArray) ? functionsArray.length : 0);
+          console.log(`[${timestamp}] 🔧 FUNCTIONS: Available count:`, Array.isArray(functionsArray) ? functionsArray.length : 0);
 
           const config = {
             type: "Settings",
@@ -570,25 +575,36 @@ async function initializeDeepgram(businessConfig, callContext) {
             },
           };
 
-          console.log("📋 Deepgram configuration summary:");
-          console.log("   - Audio input: mulaw, 8000Hz");
-          console.log("   - Audio output: mulaw, 8000Hz");
-          console.log("   - Think model: gpt-4o-mini");
-          console.log("   - Speak model: aura-2-thalia-en");
-          console.log("   - Functions available:", Array.isArray(functionsArray) ? functionsArray.length : 0);
-          console.log("   - Prompt length:", systemPrompt?.length || 0, "characters");
+          console.log(`[${timestamp}] 📋 CONFIG: Summary:`);
+          console.log(`[${timestamp}]    - Audio input: mulaw, 8000Hz`);
+          console.log(`[${timestamp}]    - Audio output: mulaw, 8000Hz`);
+          console.log(`[${timestamp}]    - Think model: gpt-4o-mini`);
+          console.log(`[${timestamp}]    - Speak model: aura-2-thalia-en`);
+          console.log(`[${timestamp}]    - Functions available:`, Array.isArray(functionsArray) ? functionsArray.length : 0);
+          console.log(`[${timestamp}]    - Prompt length:`, systemPrompt?.length || 0, "characters");
 
+          // Validate config before sending
+          if (!config.agent.think.prompt) {
+            console.error(`[${timestamp}] ❌ CONFIG: Missing system prompt!`);
+            reject(new Error("Missing system prompt"));
+            return;
+          }
           
-          console.log(
-            "📤 Sending Deepgram configuration:",
-            JSON.stringify(config, null, 2)
-          );
+          if (!config.agent.think.functions || config.agent.think.functions.length === 0) {
+            console.error(`[${timestamp}] ❌ CONFIG: Missing functions!`);
+            reject(new Error("Missing function definitions"));
+            return;
+          }
+          
+          console.log(`[${timestamp}] 📤 SENDING: Configuration to Deepgram...`);
+          console.log(`[${timestamp}] 📦 CONFIG: Full payload:`, JSON.stringify(config, null, 2));
           
           try {
             deepgramWs.send(JSON.stringify(config));
-            console.log("✅ Configuration sent successfully to Deepgram");
+            console.log(`[${timestamp}] ✅ SENT: Configuration sent successfully to Deepgram`);
+            console.log(`[${timestamp}] ⏳ WAITING: For SettingsApplied confirmation...`);
           } catch (configError) {
-            console.error("❌ Error sending configuration to Deepgram:", configError);
+            console.error(`[${timestamp}] ❌ ERROR: Sending configuration to Deepgram:`, configError);
             reject(configError);
             return;
           }
@@ -597,7 +613,7 @@ async function initializeDeepgram(businessConfig, callContext) {
           const keepAliveInterval = setInterval(() => {
             if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
               deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
-              console.log("Sent keep-alive to Deepgram");
+              console.log(`[${new Date().toISOString()}] 💓 KEEPALIVE: Sent to Deepgram`);
             } else {
               clearInterval(keepAliveInterval);
             }
@@ -607,12 +623,22 @@ async function initializeDeepgram(businessConfig, callContext) {
           deepgramWs.on("close", () => {
             clearInterval(keepAliveInterval);
           });
-
+        } else if (data.type === "SettingsApplied") {
+          console.log(`[${timestamp}] ✅ SETTINGS_APPLIED: Agent configuration confirmed!`);
+          console.log(`[${timestamp}] 🎯 READY: Agent can now handle conversations and function calls`);
+          console.log(`[${timestamp}] 🔧 APPLIED: Audio settings:`, data.audio || "No audio config");
+          console.log(`[${timestamp}] 🔧 APPLIED: Agent settings:`, data.agent || "No agent config");
+          
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
+        } else {
+          console.log(`[${timestamp}] 📨 OTHER: Initialization message type:`, data.type);
+          console.log(`[${timestamp}] 📦 OTHER: Full data:`, JSON.stringify(data, null, 2));
         }
       } catch (error) {
-        console.error("Error parsing Deepgram initialization message:", error);
+        const timestamp = new Date().toISOString();
+        console.error(`[${timestamp}] ❌ INIT_ERROR: Processing message:`, error);
+        reject(error);
       }
     });
 
