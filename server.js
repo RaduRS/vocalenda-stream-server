@@ -32,6 +32,8 @@ wss.on("connection", async (ws, req) => {
   let callSid = null;
   let businessConfig = null;
   let deepgramReady = false; // Track if Deepgram is ready to receive audio
+  let expectingFunctionCall = false;
+  let functionCallTimeout = null;
 
   // Parse query parameters from the connection URL
   const query = url.parse(req.url, true).query;
@@ -240,13 +242,42 @@ wss.on("connection", async (ws, req) => {
                 const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
                 console.log("📝 Transcript:", transcript);
                 
-                // Check if this looks like a request for availability
-                if (transcript && (transcript.toLowerCase().includes('available') || 
-                                 transcript.toLowerCase().includes('appointment') ||
-                                 transcript.toLowerCase().includes('book') ||
-                                 transcript.toLowerCase().includes('schedule'))) {
-                  console.log("🎯 Detected potential booking/availability request in transcript");
-                  console.log("🤖 AI should be processing this and potentially calling get_available_slots function");
+                // Enhanced detection for booking triggers
+                if (transcript) {
+                  const lowerTranscript = transcript.toLowerCase();
+                  const bookingKeywords = ['available', 'appointment', 'book', 'schedule', 'tomorrow', 'today', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                  const namePattern = /my name is|i'm|i am|this is|call me/i;
+                  
+                  const hasBookingKeyword = bookingKeywords.some(keyword => lowerTranscript.includes(keyword));
+                  const hasName = namePattern.test(transcript) || /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(transcript);
+                  
+                  if (hasBookingKeyword) {
+                    console.log("🎯 BOOKING KEYWORD DETECTED:", transcript);
+                    console.log("🤖 AI should call get_available_slots function soon!");
+                    
+                    // Set expectation for function call
+                    expectingFunctionCall = true;
+                    
+                    // Clear any existing timeout
+                    if (functionCallTimeout) {
+                      clearTimeout(functionCallTimeout);
+                    }
+                    
+                    // Set timeout to detect if function call doesn't happen
+                    functionCallTimeout = setTimeout(() => {
+                      if (expectingFunctionCall) {
+                        console.log("🚨🚨 CRITICAL: AI FAILED TO CALL FUNCTION! 🚨🚨");
+                        console.log("💡 Expected get_available_slots but AI responded with text instead");
+                        console.log("🔧 This indicates the system prompt needs adjustment");
+                        expectingFunctionCall = false;
+                      }
+                    }, 8000); // 8 second timeout
+                  }
+                  
+                  if (hasName) {
+                    console.log("👤 CUSTOMER NAME DETECTED:", transcript);
+                    console.log("🚨 Next booking request should trigger function call!");
+                  }
                 }
               } else if (deepgramData.type === "SpeechStarted") {
                 // User started speaking
@@ -268,18 +299,35 @@ wss.on("connection", async (ws, req) => {
                 ws.send(JSON.stringify(audioMessage));
               } else if (deepgramData.type === "AgentThinking") {
                 console.log("🧠 AI is thinking...");
+                console.log("🔍 Thinking context:", deepgramData.text || deepgramData.content || 'No thinking details provided');
+                console.log("⏰ This is when function calls should happen!");
               } else if (deepgramData.type === "TtsStart") {
                 console.log("🎙️ AI is generating speech...");
               } else if (deepgramData.type === "TtsText") {
                 console.log("💬 AI text response:", deepgramData.text);
+                // Check if AI is mentioning availability without calling function
+                if (deepgramData.text && (deepgramData.text.toLowerCase().includes('available') || 
+                                         deepgramData.text.toLowerCase().includes('check') ||
+                                         deepgramData.text.toLowerCase().includes('let me see'))) {
+                  console.log("🚨 WARNING: AI mentioned checking availability but may not have called function!");
+                }
               } else if (deepgramData.type === "AgentResponse") {
                 console.log("🤖 Agent response:", deepgramData.response || deepgramData.text || 'No response text');
               } else if (deepgramData.type === "FunctionCall") {
                 // Handle tool calls
                 console.log("🚨🚨 FUNCTION CALL DETECTED! 🚨🚨");
+                console.log("✅ SUCCESS: AI is calling a function as expected!");
                 console.log("Function name:", deepgramData.function_name);
                 console.log("Parameters:", JSON.stringify(deepgramData.parameters, null, 2));
                 console.log("🔧 Full function call data:", JSON.stringify(deepgramData, null, 2));
+                
+                // Clear expectation since function call happened
+                expectingFunctionCall = false;
+                if (functionCallTimeout) {
+                  clearTimeout(functionCallTimeout);
+                  functionCallTimeout = null;
+                }
+                
                 if (deepgramWs && businessConfig) {
                   console.log("🔧 Calling handleFunctionCall...");
                   await handleFunctionCall(deepgramWs, deepgramData, businessConfig);
@@ -476,6 +524,10 @@ async function initializeDeepgram(businessConfig, callContext) {
           
           console.log("📝 Generated system prompt length:", systemPrompt.length, "characters");
           console.log("📝 System prompt preview (first 500 chars):", systemPrompt.substring(0, 500) + "...");
+          console.log("🔧 FULL SYSTEM PROMPT:");
+          console.log(systemPrompt);
+          console.log("🔧 END SYSTEM PROMPT");
+          console.log("🎯 Key function calling rules are included in prompt above");
 
           const functionsArray = getAvailableFunctions();
           console.log("   - Functions available:", Array.isArray(functionsArray) ? functionsArray.length : 0);
@@ -593,40 +645,35 @@ function generateSystemPrompt(businessConfig, callContext) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
-  let prompt = `You are a professional AI receptionist for ${business.name}. Your job is to help customers book appointments using the available functions.
+  let prompt = `You are an AI receptionist for ${business.name}. Your PRIMARY job is booking appointments using functions.
 
-BUSINESS INFORMATION:
-- Name: ${business.name}`;
+BUSINESS: ${business.name}`;
+  if (business.address) prompt += ` | ${business.address}`;
+  if (business.phone_number) prompt += ` | ${business.phone_number}`;
 
-  if (business.address) prompt += `\n- Address: ${business.address}`;
-  if (business.phone_number) prompt += `\n- Phone: ${business.phone_number}`;
-  if (business.email) prompt += `\n- Email: ${business.email}`;
-
-  prompt += `\n\nSERVICES AVAILABLE:`;
+  prompt += `\n\nSERVICES:`;
   services.forEach((service) => {
-    prompt += `\n- ${service.name}: ${service.duration_minutes} minutes`;
-    if (service.price) prompt += `, ${service.currency}${service.price}`;
+    prompt += ` ${service.name}(${service.duration_minutes}min)`;
+    if (service.price) prompt += `£${service.price}`;
+    prompt += `,`;
   });
 
-  prompt += `\n\nCRITICAL FUNCTION CALLING RULES:
-1. When a customer asks about booking, availability, appointments, or scheduling, IMMEDIATELY use the get_available_slots function
-2. ALWAYS call get_available_slots before discussing available times
-3. Use create_booking function to complete appointments
-4. Get the customer's name before booking
+  prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
+1. AFTER getting customer name + service interest → IMMEDIATELY call get_available_slots
+2. NEVER discuss times without calling get_available_slots first
+3. Use create_booking to confirm appointments
 
-WORKFLOW EXAMPLE:
-Customer: "I want to book a haircut for tomorrow"
-You: "I'd be happy to help you book a haircut for tomorrow. Can I get your name first?"
-Customer: "John Smith"
-You: IMMEDIATELY CALL get_available_slots function with tomorrow's date
-Then: Present the available times to John
+⚡ EXACT WORKFLOW:
+Customer: "I want a haircut tomorrow"
+You: "Great! Your name?"
+Customer: "John"
+You: "Perfect John, let me check tomorrow's availability" → CALL get_available_slots NOW
 
-KEY TRIGGERS - Call get_available_slots when customers say:
-- "book", "appointment", "available", "schedule", "tomorrow", "today", "next week"
-- Any date or time reference
-- Any service name followed by booking intent
+🎯 TRIGGERS (call get_available_slots immediately):
+- Customer gives name + mentions: book, appointment, available, schedule, tomorrow, today, Monday, etc.
+- ANY date/time reference after getting name
 
-Always call the appropriate function when customers mention booking, availability, or appointments. Be conversational but focused on using functions to help customers.`;
+Be friendly but ALWAYS use functions. Never guess availability.`;
 
   return prompt;
 }
