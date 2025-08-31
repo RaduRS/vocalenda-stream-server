@@ -710,24 +710,38 @@ async function initializeDeepgram(businessConfig, callContext) {
 
         // Check if this is binary data (audio) vs JSON message
         if (message instanceof Buffer && message.length > 0) {
-          const messageStr = message.toString();
+          // First check: if it's clearly not text-based, skip it
+          if (message.length > 100 && !message.toString('utf8', 0, 10).includes('{')) {
+            console.log(
+              `[${timestamp}] 🔊 INIT: Ignoring binary audio data (${message.length} bytes)`
+            );
+            return;
+          }
+          
+          const messageStr = message.toString('utf8');
+          
           // Check if it looks like JSON by examining the content
           if (
             !messageStr.trim().startsWith("{") &&
             !messageStr.trim().startsWith("[")
           ) {
             // This is binary audio data, not a JSON message
+            console.log(
+              `[${timestamp}] 🔊 INIT: Ignoring non-JSON data (${message.length} bytes)`
+            );
             return;
           }
-          // Additional check for binary patterns
+          
+          // Additional check for binary patterns and invalid UTF-8
           if (
             messageStr.includes("\x00") ||
             messageStr.includes("\xFF") ||
+            messageStr.includes("�") ||
             /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)
           ) {
             // Contains binary characters, ignore it in initialization
             console.log(
-              `[${timestamp}] 🔊 INIT: Ignoring binary data in initialization`
+              `[${timestamp}] 🔊 INIT: Ignoring binary data in initialization (${message.length} bytes)`
             );
             return;
           }
@@ -1039,19 +1053,26 @@ BUSINESS: ${business.name}`;
   });
 
   prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
-1. AFTER getting customer name + service interest → IMMEDIATELY call get_available_slots
-2. NEVER discuss times without calling get_available_slots first
-3. Use create_booking to confirm appointments
+1. AFTER getting customer name + service interest → ASK for their preferred time
+2. Check if preferred time is available using get_available_slots
+3. If available, confirm and book directly. If not, suggest alternatives
+4. Use create_booking to confirm appointments
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
 You: "Great! Your name?"
 Customer: "John"
-You: "Perfect John, let me check tomorrow's availability" → [call get_available_slots function]
+You: "Perfect John! What time would you prefer for your haircut tomorrow?"
+Customer: "10am"
+You: [call get_available_slots for that date] → Check if 10:00 is available
+If available: "Perfect! I can book you for 10am. Shall I confirm that?"
+If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
-🎯 TRIGGERS (call get_available_slots immediately):
-- Customer gives name + mentions: book, appointment, available, schedule, tomorrow, today, Monday, etc.
-- ANY date/time reference after getting name
+🎯 BOOKING STRATEGY:
+- Always ask for preferred time first
+- Only show alternatives if preferred time unavailable
+- Never list all available slots unless customer asks
+- Book immediately if preferred time is free
 
 Be friendly but ALWAYS use functions silently. Never announce function calls. Never guess availability.`;
 
