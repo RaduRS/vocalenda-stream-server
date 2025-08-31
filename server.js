@@ -875,18 +875,13 @@ async function handleFunctionCall(
 
     // Send response back to Deepgram
     const response = {
-      type: "FunctionResponse",
-      function_call_id: functionCallData.function_call_id,
-      result: JSON.stringify(result),
-    };
+        type: "FunctionResponse",
+        function_call_id: functionCallData.function_call_id,
+        result: result, // Send as plain object, not JSON string
+      };
     
-    console.log("🔧 About to send function response:");
-    console.log("   - Function:", function_name);
-    console.log("   - Result type:", typeof result);
-    console.log("   - Result content:", JSON.stringify(result, null, 2));
-    console.log("   - Stringified result:", JSON.stringify(result));
-
-    console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
+    console.log(`✅ Sending ${function_name} response to Deepgram`);
+    // Reduced logging for better performance
     
     try {
       if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
