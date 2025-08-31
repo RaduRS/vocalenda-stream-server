@@ -911,9 +911,10 @@ async function handleFunctionCall(
 
     // Send response back to Deepgram
     const response = {
-        type: "FunctionResponse",
-        function_call_id: functionCallData.function_call_id,
-        result: result, // Send as plain object, not JSON string
+        type: "FunctionCallResponse",
+        id: functionCallData.function_call_id,
+        name: function_name,
+        content: JSON.stringify(result), // Deepgram expects content as string
       };
     
     console.log(`✅ Sending ${function_name} response to Deepgram`);
@@ -943,9 +944,10 @@ async function handleFunctionCall(
 
     // Send error response
     const errorResponse = {
-      type: "FunctionResponse",
-      function_call_id: functionCallData.function_call_id,
-      result: { error: "Function execution failed" },
+      type: "FunctionCallResponse",
+      id: functionCallData.function_call_id,
+      name: function_name,
+      content: JSON.stringify({ error: "Function execution failed" }),
     };
 
     deepgramWs.send(JSON.stringify(errorResponse));
