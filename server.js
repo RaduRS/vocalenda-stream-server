@@ -328,6 +328,39 @@ wss.on("connection", async (ws, req) => {
                   console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
                   console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
                 }
+              } else if (deepgramData.type === "FunctionCallRequest") {
+                console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`);
+                console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
+                console.log(`[${timestamp}] 📋 Functions:`, JSON.stringify(deepgramData.functions, null, 2));
+                
+                // Clear expectation since function call happened
+                expectingFunctionCall = false;
+                if (functionCallTimeout) {
+                  clearTimeout(functionCallTimeout);
+                  functionCallTimeout = null;
+                }
+                
+                // Process each function in the request
+                for (const func of deepgramData.functions) {
+                  console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
+                  
+                  // Create the function call data in the expected format
+                  const functionCallData = {
+                    function_name: func.name,
+                    function_call_id: func.id,
+                    parameters: JSON.parse(func.arguments)
+                  };
+                  
+                  if (deepgramWs && businessConfig) {
+                    console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`);
+                    await handleFunctionCall(deepgramWs, functionCallData, businessConfig);
+                    console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`);
+                  } else {
+                    console.error(`[${timestamp}] ❌ CANNOT handle function call - missing dependencies`);
+                    console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
+                    console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
+                  }
+                }
               } else if (deepgramData.type === "Error") {
                 console.error(`[${timestamp}] ❌ DEEPGRAM_ERROR:`, deepgramData);
               } else if (deepgramData.type === "Warning") {
@@ -669,8 +702,11 @@ async function initializeDeepgram(businessConfig, callContext) {
 function generateSystemPrompt(businessConfig, callContext) {
   const business = businessConfig.business;
   const services = businessConfig.services;
+  
+  // Get today's date in YYYY-MM-DD format
+  const today = new Date().toISOString().split('T')[0];
 
-  let prompt = `You are an AI receptionist for ${business.name}. Your PRIMARY job is booking appointments using functions.
+  let prompt = `You are an AI receptionist for ${business.name}. Today is ${today} (YYYY-MM-DD format). Your PRIMARY job is booking appointments using functions.
 
 BUSINESS: ${business.name}`;
   if (business.address) prompt += ` | ${business.address}`;
