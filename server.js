@@ -525,7 +525,7 @@ async function initializeDeepgram(businessConfig, callContext) {
     });
 
     // Wait for Welcome message before sending configuration (like official example)
-    deepgramWs.on("message", (message) => {
+    deepgramWs.on("message", async (message) => {
       try {
         const timestamp = new Date().toISOString();
         
@@ -664,6 +664,26 @@ async function initializeDeepgram(businessConfig, callContext) {
           
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
+        } else if (data.type === "FunctionCallRequest") {
+          console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST in INIT! 🚨🚨`);
+          console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
+          console.log(`[${timestamp}] 📋 Functions:`, JSON.stringify(data.functions, null, 2));
+          
+          // Process each function in the request
+          for (const func of data.functions) {
+            console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
+            
+            // Create the function call data in the expected format
+            const functionCallData = {
+              function_name: func.name,
+              function_call_id: func.id,
+              parameters: JSON.parse(func.arguments)
+            };
+            
+            console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`);
+            await handleFunctionCall(deepgramWs, functionCallData, businessConfig);
+            console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`);
+          }
         } else {
           console.log(`[${timestamp}] 📨 OTHER: Initialization message type:`, data.type);
           console.log(`[${timestamp}] 📦 OTHER: Full data:`, JSON.stringify(data, null, 2));
