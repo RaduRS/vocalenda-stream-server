@@ -1099,7 +1099,7 @@ async function createBooking(businessConfig, params) {
     // Prepare booking data for the Next.js API
     const bookingData = {
       businessId: businessConfig.business.id,
-      serviceId: service_id,
+      serviceId: service.id, // Use the actual service UUID, not the name
       startTime: startTime.toISOString(),
       endTime: endTime.toISOString(),
       customerName: customer_name,
