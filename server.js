@@ -340,6 +340,11 @@ wss.on("connection", async (ws, req) => {
                   functionCallTimeout = null;
                 }
                 
+                // Pause KeepAlive during function processing
+                if (deepgramWs && deepgramWs.pauseKeepAlive) {
+                  deepgramWs.pauseKeepAlive();
+                }
+                
                 // Process each function in the request
                 for (const func of deepgramData.functions) {
                   console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
@@ -360,6 +365,11 @@ wss.on("connection", async (ws, req) => {
                     console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
                     console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
                   }
+                }
+                
+                // Resume KeepAlive after function processing
+                if (deepgramWs && deepgramWs.resumeKeepAlive) {
+                  deepgramWs.resumeKeepAlive();
                 }
               } else if (deepgramData.type === "Error") {
                 console.error(`[${timestamp}] ❌ DEEPGRAM_ERROR:`, deepgramData);
@@ -643,14 +653,30 @@ async function initializeDeepgram(businessConfig, callContext) {
           }
 
           // Set up keep-alive messages to maintain connection
+          // Track if we're processing function calls to avoid conflicts
+          let processingFunctionCall = false;
+          
           const keepAliveInterval = setInterval(() => {
-            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN && !processingFunctionCall) {
               deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
               console.log(`[${new Date().toISOString()}] 💓 KEEPALIVE: Sent to Deepgram`);
+            } else if (processingFunctionCall) {
+              console.log(`[${new Date().toISOString()}] ⏸️ KEEPALIVE: Skipped - processing function call`);
             } else {
               clearInterval(keepAliveInterval);
             }
           }, 5000);
+
+          // Add function to control KeepAlive during function processing
+          deepgramWs.pauseKeepAlive = () => {
+            processingFunctionCall = true;
+            console.log(`[${new Date().toISOString()}] ⏸️ KEEPALIVE: Paused for function processing`);
+          };
+          
+          deepgramWs.resumeKeepAlive = () => {
+            processingFunctionCall = false;
+            console.log(`[${new Date().toISOString()}] ▶️ KEEPALIVE: Resumed after function processing`);
+          };
 
           // Clean up interval when connection closes
           deepgramWs.on("close", () => {
@@ -669,6 +695,11 @@ async function initializeDeepgram(businessConfig, callContext) {
           console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
           console.log(`[${timestamp}] 📋 Functions:`, JSON.stringify(data.functions, null, 2));
           
+          // Pause KeepAlive during function processing
+          if (deepgramWs.pauseKeepAlive) {
+            deepgramWs.pauseKeepAlive();
+          }
+          
           // Process each function in the request
           for (const func of data.functions) {
             console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
@@ -683,6 +714,11 @@ async function initializeDeepgram(businessConfig, callContext) {
             console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`);
             await handleFunctionCall(deepgramWs, functionCallData, businessConfig);
             console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`);
+          }
+          
+          // Resume KeepAlive after function processing
+          if (deepgramWs.resumeKeepAlive) {
+            deepgramWs.resumeKeepAlive();
           }
         } else {
           console.log(`[${timestamp}] 📨 OTHER: Initialization message type:`, data.type);
@@ -888,6 +924,9 @@ async function handleFunctionCall(
         deepgramWs.send(JSON.stringify(response));
         console.log("✅ Function response sent successfully to Deepgram");
         console.log("🔄 Waiting for Deepgram to process the response...");
+        
+        // Add a small delay to ensure Deepgram processes the response before any KeepAlive
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } else {
         console.error("❌ Cannot send function response - Deepgram connection not open");
         console.error("   - WebSocket exists:", !!deepgramWs);
