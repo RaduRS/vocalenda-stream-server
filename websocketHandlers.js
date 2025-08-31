@@ -119,7 +119,6 @@ export function handleWebSocketConnection(ws, req) {
                 }
 
                 // Try to parse JSON
-                let deepgramData;
                 try {
                   deepgramData = JSON.parse(messageStr);
                 } catch (parseError) {
@@ -128,8 +127,9 @@ export function handleWebSocketConnection(ws, req) {
                 }
               } else {
                  // Handle non-buffer messages (shouldn't happen but just in case)
+                 const messageStr = deepgramMessage.toString();
                  try {
-                   deepgramData = JSON.parse(deepgramMessage.toString());
+                   deepgramData = JSON.parse(messageStr);
                  } catch (parseError) {
                    console.warn("⚠️ Non-buffer JSON parse failed - treating as audio");
                    return;
@@ -139,7 +139,7 @@ export function handleWebSocketConnection(ws, req) {
               // This is a JSON message - log it fully with timestamp
               console.log(
                 `[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`,
-                messageStr
+                deepgramMessage.toString()
               );
               console.log(`[${timestamp}] === PARSED DEEPGRAM JSON ===`);
               console.log(JSON.stringify(deepgramData, null, 2));
