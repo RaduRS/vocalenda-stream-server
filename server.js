@@ -142,9 +142,6 @@ wss.on("connection", async (ws, req) => {
                     },
                   };
                   ws.send(JSON.stringify(audioMessage));
-                  console.log(
-                    `✅ Forwarded ${deepgramMessage.length} bytes of audio to Twilio`
-                  );
                 } catch (error) {
                   console.error("❌ Error forwarding audio to Twilio:", error);
                 }
@@ -201,9 +198,6 @@ wss.on("connection", async (ws, req) => {
                     },
                   };
                   ws.send(JSON.stringify(audioMessage));
-                  console.log(
-                    `✅ Forwarded ${deepgramMessage.length} bytes of non-JSON audio to Twilio`
-                  );
                 } catch (error) {
                   console.error(
                     "❌ Error forwarding non-JSON audio to Twilio:",
@@ -356,10 +350,16 @@ wss.on("connection", async (ws, req) => {
 
           deepgramWs.on("error", (error) => {
             console.error("Deepgram WebSocket error:", error);
+            // Don't close the Twilio connection on Deepgram errors
+            // Just log and continue
           });
 
-          deepgramWs.on("close", () => {
-            console.log("Deepgram WebSocket closed");
+          deepgramWs.on("close", (code, reason) => {
+            console.log(`Deepgram WebSocket closed. Code: ${code}, Reason: ${reason}`);
+            // Only close Twilio connection if it's an unexpected close
+            if (code !== 1000 && code !== 1001) {
+              console.error("🚨 Unexpected Deepgram close - this may cause issues");
+            }
           });
 
           break;
@@ -394,7 +394,6 @@ wss.on("connection", async (ws, req) => {
               }
 
               deepgramWs.send(audioBuffer);
-              console.log(`🎤 Forwarded ${audioBuffer.length} bytes of audio from Twilio to Deepgram`);
             } catch (error) {
               console.error("❌ Error processing audio from Twilio:", error);
             }
@@ -667,13 +666,13 @@ BUSINESS: ${business.name}`;
 Customer: "I want a haircut tomorrow"
 You: "Great! Your name?"
 Customer: "John"
-You: "Perfect John, let me check tomorrow's availability" → CALL get_available_slots NOW
+You: "Perfect John, let me check tomorrow's availability" → [call get_available_slots function]
 
 🎯 TRIGGERS (call get_available_slots immediately):
 - Customer gives name + mentions: book, appointment, available, schedule, tomorrow, today, Monday, etc.
 - ANY date/time reference after getting name
 
-Be friendly but ALWAYS use functions. Never guess availability.`;
+Be friendly but ALWAYS use functions silently. Never announce function calls. Never guess availability.`;
 
   return prompt;
 }
@@ -800,12 +799,20 @@ async function handleFunctionCall(
     console.log("📤 Sending function response to Deepgram:", JSON.stringify(response, null, 2));
     
     try {
-      deepgramWs.send(JSON.stringify(response));
-      console.log("✅ Function response sent successfully to Deepgram");
-      console.log("🔄 Waiting for Deepgram to process the response...");
+      if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+        deepgramWs.send(JSON.stringify(response));
+        console.log("✅ Function response sent successfully to Deepgram");
+        console.log("🔄 Waiting for Deepgram to process the response...");
+      } else {
+        console.error("❌ Cannot send function response - Deepgram connection not open");
+        console.error("   - WebSocket exists:", !!deepgramWs);
+        console.error("   - ReadyState:", deepgramWs?.readyState);
+        throw new Error("Deepgram connection not available");
+      }
     } catch (sendError) {
       console.error("❌ Error sending response to Deepgram:", sendError);
-      throw sendError;
+      // Don't throw the error to prevent connection closure
+      console.error("🔧 Continuing despite send error to maintain connection");
     }
   } catch (error) {
     console.error("Error handling function call:", error);
