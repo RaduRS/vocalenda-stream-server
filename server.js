@@ -93,6 +93,15 @@ wss.on("connection", async (ws, req) => {
           // Set up Deepgram message handling
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
+              // Add comprehensive logging first
+              console.log("🔍 RAW MESSAGE TYPE:", typeof deepgramMessage);
+              console.log("🔍 IS BUFFER:", Buffer.isBuffer(deepgramMessage));
+              console.log("🔍 MESSAGE LENGTH:", deepgramMessage.length);
+              
+              if (!Buffer.isBuffer(deepgramMessage)) {
+                console.log("🔍 NON-BUFFER MESSAGE:", deepgramMessage.toString());
+              }
+
               // Check if this is binary audio data
               if (Buffer.isBuffer(deepgramMessage)) {
                 console.log(
@@ -203,11 +212,15 @@ wss.on("connection", async (ws, req) => {
               }
 
               const deepgramData = JSON.parse(messageStr);
+              
+              // This is a JSON message - log it fully
+              console.log("📨 JSON MESSAGE FROM DEEPGRAM:", messageStr);
               console.log("=== PARSED DEEPGRAM JSON ===");
               console.log(JSON.stringify(deepgramData, null, 2));
+              console.log("=== END PARSED JSON ===");
 
-              // Handle different types of Deepgram messages
-              if (deepgramData.type === "SettingsApplied") {
+            // Handle different types of Deepgram messages
+            if (deepgramData.type === "SettingsApplied") {
                 // Deepgram is now ready to receive audio
                 console.log(
                   "✅ Deepgram settings applied - ready to receive audio"
