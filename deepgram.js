@@ -26,8 +26,8 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
       console.log("Connection readyState:", deepgramWs.readyState);
     });
 
-    // Wait for Welcome message before sending configuration (like official example)
-    deepgramWs.on("message", async (message) => {
+    // Create named initialization handler that can be removed specifically
+    const initializationHandler = async (message) => {
       try {
         const timestamp = new Date().toISOString();
 
@@ -264,10 +264,10 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
             data.agent || "No agent config"
           );
 
-          // 🚨 CRITICAL: Remove the message handler to prevent duplicates
-          deepgramWs.removeAllListeners('message');
+          // 🚨 CRITICAL: Remove only THIS specific initialization handler
+          deepgramWs.removeListener('message', initializationHandler);
           console.log(
-            `[${timestamp}] 🔇 REMOVED: Initialization message handler to prevent duplicates`
+            `[${timestamp}] 🔇 READY: Initialization handler removed, websocketHandlers will process future messages`
           );
 
           // Resolve the promise with the connected WebSocket
@@ -335,7 +335,10 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
         );
         reject(error);
       }
-    });
+    };
+
+    // Wait for Welcome message before sending configuration (like official example)
+    deepgramWs.on("message", initializationHandler);
 
     deepgramWs.on("error", (error) => {
       console.error("Deepgram WebSocket error in initializeDeepgram:", error);
