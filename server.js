@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
 import { initializeDeepgram, handleDeepgramMessage } from "./deepgram.js";
+import { clearCallSession } from "./functionHandlers.js";
 
 // Validate configuration on startup
 const config = validateConfig();
@@ -106,6 +107,7 @@ wss.on("connection", async (ws, req) => {
                 functionCallTimeout,
                 deepgramReady,
                 callSid,
+                callerPhone,
                 setExpectingFunctionCall: (value) => {
                   expectingFunctionCall = value;
                 },
@@ -197,6 +199,10 @@ wss.on("connection", async (ws, req) => {
     console.log("Twilio WebSocket connection closed");
     if (deepgramWs) {
       deepgramWs.close();
+    }
+    // Clear call session when connection closes
+    if (callSid) {
+      clearCallSession(callSid);
     }
   });
 
