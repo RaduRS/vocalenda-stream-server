@@ -193,8 +193,8 @@ export function handleWebSocketConnection(ws, req) {
                 `[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`
               );
 
-              // 🚨 FIX: Filter out unwanted message types
-              const ignoredTypes = ['History', 'UserStartedSpeaking', 'UserStoppedSpeaking', 'AgentAudioDone'];
+              // 🚨 FIX: Only filter out truly unwanted message types
+              const ignoredTypes = ['History', 'AgentAudioDone'];
               if (ignoredTypes.includes(deepgramData.type)) {
                 console.log(`[${timestamp}] 🔇 IGNORED: ${deepgramData.type} - not processing`);
                 return;
