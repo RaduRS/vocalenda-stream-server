@@ -793,7 +793,12 @@ async function handleFunctionCallRequestMessage(
       console.log(
         `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
       );
-      await handleFunctionCall(deepgramWs, functionCallData, businessConfig);
+      await handleFunctionCall(
+        deepgramWs,
+        functionCallData,
+        businessConfig,
+        context.callSid
+      );
       console.log(
         `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
       );
