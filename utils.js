@@ -58,6 +58,11 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - Never list all available slots unless customer asks
 - Book immediately if preferred time is free
 
+🔚 CALL ENDING:
+- When customer says goodbye, thanks you, or indicates they're finished, use end_call function
+- Examples: "Thanks, that's all I needed", "Great, see you tomorrow", "Perfect, goodbye"
+- Don't keep talking after they've indicated they're done
+
 Be friendly but ALWAYS use functions silently. Never announce function calls. Never guess availability. Never mention events being added to google calendar.`;
 
   return prompt;
@@ -126,6 +131,21 @@ export function getAvailableFunctions() {
           },
         },
         required: ["customer_name", "service_id", "date", "time"],
+      },
+    },
+    {
+      name: "end_call",
+      description:
+        "End the phone call when the conversation has naturally concluded. Use this when the customer indicates they are finished (saying goodbye, thanking you, or expressing satisfaction with the service).",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "Brief reason for ending the call (e.g., 'appointment booked', 'customer said goodbye', 'inquiry completed')",
+          },
+        },
+        required: ["reason"],
       },
     },
   ];

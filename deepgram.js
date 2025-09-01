@@ -13,10 +13,7 @@ const config = validateConfig();
  * @param {Function} handleFunctionCall - Function to handle function calls
  * @returns {Promise<WebSocket>} - Connected Deepgram WebSocket
  */
-export async function initializeDeepgram(
-  businessConfig,
-  callContext
-) {
+export async function initializeDeepgram(businessConfig, callContext) {
   return new Promise((resolve, reject) => {
     const deepgramWs = new WebSocket(
       "wss://agent.deepgram.com/v1/agent/converse",
@@ -382,7 +379,7 @@ export async function handleDeepgramMessage(
     deepgramReady,
     setExpectingFunctionCall,
     setFunctionCallTimeout,
-    setDeepgramReady
+    setDeepgramReady,
   } = state;
 
   try {
@@ -390,10 +387,7 @@ export async function handleDeepgramMessage(
     const timestamp = new Date().toISOString();
 
     if (!Buffer.isBuffer(deepgramMessage)) {
-      console.log(
-        "🔍 NON-BUFFER MESSAGE:",
-        deepgramMessage.toString()
-      );
+      console.log("🔍 NON-BUFFER MESSAGE:", deepgramMessage.toString());
     }
 
     // Check if this is binary audio data
@@ -406,17 +400,13 @@ export async function handleDeepgramMessage(
 
       // If we're receiving audio, Deepgram is clearly ready
       if (!deepgramReady) {
-        console.log(
-          "🎉 Deepgram is sending audio - marking as ready!"
-        );
+        console.log("🎉 Deepgram is sending audio - marking as ready!");
         setDeepgramReady(true);
       }
 
       // Validate that we have a valid stream ID
       if (!streamSid) {
-        console.warn(
-          "⚠️ No streamSid available for audio forwarding"
-        );
+        console.warn("⚠️ No streamSid available for audio forwarding");
         return;
       }
 
@@ -457,25 +447,19 @@ export async function handleDeepgramMessage(
 
       // Validate audio data integrity
       if (deepgramMessage.length === 0) {
-        console.warn(
-          "⚠️ Received empty non-JSON audio buffer from Deepgram"
-        );
+        console.warn("⚠️ Received empty non-JSON audio buffer from Deepgram");
         return;
       }
 
       // If we're receiving audio, Deepgram is clearly ready
       if (!deepgramReady) {
-        console.log(
-          "🎉 Deepgram is sending audio - marking as ready!"
-        );
+        console.log("🎉 Deepgram is sending audio - marking as ready!");
         setDeepgramReady(true);
       }
 
       // Validate that we have a valid stream ID
       if (!streamSid) {
-        console.warn(
-          "⚠️ No streamSid available for non-JSON audio forwarding"
-        );
+        console.warn("⚠️ No streamSid available for non-JSON audio forwarding");
         return;
       }
 
@@ -490,10 +474,7 @@ export async function handleDeepgramMessage(
         };
         twilioWs.send(JSON.stringify(audioMessage));
       } catch (error) {
-        console.error(
-          "❌ Error forwarding non-JSON audio to Twilio:",
-          error
-        );
+        console.error("❌ Error forwarding non-JSON audio to Twilio:", error);
       }
       return;
     }
@@ -501,18 +482,13 @@ export async function handleDeepgramMessage(
     const deepgramData = JSON.parse(messageStr);
 
     // This is a JSON message - log it fully with timestamp
-    console.log(
-      `[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`,
-      messageStr
-    );
+    console.log(`[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`, messageStr);
     console.log(`[${timestamp}] === PARSED DEEPGRAM JSON ===`);
     console.log(JSON.stringify(deepgramData, null, 2));
     console.log(`[${timestamp}] === END PARSED JSON ===`);
 
     // Log the event type prominently
-    console.log(
-      `[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`
-    );
+    console.log(`[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`);
 
     // Handle different types of Deepgram messages
     const context = {
@@ -526,11 +502,10 @@ export async function handleDeepgramMessage(
         deepgramReady,
         setExpectingFunctionCall,
         setFunctionCallTimeout,
-        setDeepgramReady
-      }
+        setDeepgramReady,
+      },
     };
     await handleDeepgramMessageType(deepgramData, timestamp, context);
-
   } catch (error) {
     console.error("❌ Error parsing Deepgram message:", error);
     console.error("Raw message:", deepgramMessage.toString());
@@ -544,13 +519,7 @@ export async function handleDeepgramMessage(
  * @param {Object} context - Context object
  */
 async function handleDeepgramMessageType(deepgramData, timestamp, context) {
-  const {
-    twilioWs,
-    deepgramWs,
-    businessConfig,
-    streamSid,
-    state
-  } = context;
+  const { twilioWs, deepgramWs, businessConfig, streamSid, state } = context;
 
   if (deepgramData.type === "SettingsApplied") {
     // Deepgram is now ready to receive audio
@@ -566,21 +535,13 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       deepgramData.agent || "No agent config"
     );
     state.setDeepgramReady(true);
-    console.log(
-      `[${timestamp}] 🎙️ Agent ready with automatic greeting`
-    );
+    console.log(`[${timestamp}] 🎙️ Agent ready with automatic greeting`);
   } else if (deepgramData.type === "Welcome") {
-    console.log(
-      `[${timestamp}] ✅ WELCOME: Deepgram connection established`
-    );
+    console.log(`[${timestamp}] ✅ WELCOME: Deepgram connection established`);
   } else if (deepgramData.type === "Results") {
     // Speech-to-text results
-    const transcript =
-      deepgramData.channel?.alternatives?.[0]?.transcript;
-    console.log(
-      `[${timestamp}] 📝 RESULTS: Transcript:`,
-      transcript
-    );
+    const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
+    console.log(`[${timestamp}] 📝 RESULTS: Transcript:`, transcript);
     console.log(
       `[${timestamp}] 🔍 Full Results:`,
       JSON.stringify(deepgramData, null, 2)
@@ -591,19 +552,17 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       await handleTranscriptAnalysis(transcript, timestamp, state);
     }
   } else if (deepgramData.type === "SpeechStarted") {
-    console.log(
-      `[${timestamp}] 🎤 SPEECH_STARTED: User began speaking`
-    );
+    console.log(`[${timestamp}] 🎤 SPEECH_STARTED: User began speaking`);
   } else if (deepgramData.type === "UtteranceEnd") {
-    console.log(
-      `[${timestamp}] 🔇 UTTERANCE_END: User finished speaking`
-    );
+    console.log(`[${timestamp}] 🔇 UTTERANCE_END: User finished speaking`);
     console.log(
       `[${timestamp}] 🧠 EXPECTING: AgentThinking → FunctionCall or TtsStart`
     );
   } else if (deepgramData.type === "TtsAudio") {
     console.log(
-      `[${timestamp}] 🔊 TTS_AUDIO: AI sending audio response (${deepgramData.data?.length || 0} chars)`
+      `[${timestamp}] 🔊 TTS_AUDIO: AI sending audio response (${
+        deepgramData.data?.length || 0
+      } chars)`
     );
     const audioMessage = {
       event: "media",
@@ -614,9 +573,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     };
     twilioWs.send(JSON.stringify(audioMessage));
   } else if (deepgramData.type === "AgentThinking") {
-    console.log(
-      `[${timestamp}] 🧠 AGENT_THINKING: AI processing...`
-    );
+    console.log(`[${timestamp}] 🧠 AGENT_THINKING: AI processing...`);
     console.log(
       `[${timestamp}] 🔍 Thinking details:`,
       deepgramData.text ||
@@ -628,14 +585,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       `[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`
     );
   } else if (deepgramData.type === "TtsStart") {
-    console.log(
-      `[${timestamp}] 🎙️ TTS_START: AI generating speech...`
-    );
+    console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
-    console.log(
-      `[${timestamp}] 💬 TTS_TEXT: AI response:`,
-      deepgramData.text
-    );
+    console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
     // Check if AI is mentioning availability without calling function
     if (
       deepgramData.text &&
@@ -650,41 +602,29 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "AgentResponse") {
     console.log(
       `[${timestamp}] 🤖 AGENT_RESPONSE:`,
-      deepgramData.response ||
-        deepgramData.text ||
-        "No response text"
+      deepgramData.response || deepgramData.text || "No response text"
     );
   } else if (deepgramData.type === "FunctionCall") {
     await handleFunctionCallMessage(deepgramData, timestamp, context);
   } else if (deepgramData.type === "FunctionCallRequest") {
     await handleFunctionCallRequestMessage(deepgramData, timestamp, context);
   } else if (deepgramData.type === "Error") {
-    console.error(
-      `[${timestamp}] ❌ DEEPGRAM_ERROR:`,
-      deepgramData
-    );
+    console.error(`[${timestamp}] ❌ DEEPGRAM_ERROR:`, deepgramData);
   } else if (deepgramData.type === "Warning") {
-    console.warn(
-      `[${timestamp}] ⚠️ DEEPGRAM_WARNING:`,
-      deepgramData
-    );
+    console.warn(`[${timestamp}] ⚠️ DEEPGRAM_WARNING:`, deepgramData);
   } else if (deepgramData.type === "ConversationText") {
     console.log(
       `[${timestamp}] 💭 CONVERSATION_TEXT:`,
       deepgramData.text || deepgramData.content
     );
   } else if (deepgramData.type === "FunctionResponse") {
-    console.log(
-      `[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`
-    );
+    console.log(`[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`);
     console.log(
       `[${timestamp}] 📋 Response data:`,
       JSON.stringify(deepgramData, null, 2)
     );
   } else {
-    console.log(
-      `[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`
-    );
+    console.log(`[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`);
     console.log(
       `[${timestamp}] 📦 Full message:`,
       JSON.stringify(deepgramData, null, 2)
@@ -725,10 +665,7 @@ async function handleTranscriptAnalysis(transcript, timestamp, state) {
     /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(transcript);
 
   if (hasBookingKeyword) {
-    console.log(
-      `[${timestamp}] 🎯 BOOKING_KEYWORD_DETECTED:`,
-      transcript
-    );
+    console.log(`[${timestamp}] 🎯 BOOKING_KEYWORD_DETECTED:`, transcript);
     console.log(
       `[${timestamp}] 🤖 EXPECTING: get_available_slots function call soon!`
     );
@@ -744,15 +681,11 @@ async function handleTranscriptAnalysis(transcript, timestamp, state) {
     // Set timeout to detect if function call doesn't happen
     const timeout = setTimeout(() => {
       if (state.expectingFunctionCall) {
-        console.log(
-          "🚨🚨 CRITICAL: AI FAILED TO CALL FUNCTION! 🚨🚨"
-        );
+        console.log("🚨🚨 CRITICAL: AI FAILED TO CALL FUNCTION! 🚨🚨");
         console.log(
           "💡 Expected get_available_slots but AI responded with text instead"
         );
-        console.log(
-          "🔧 This indicates the system prompt needs adjustment"
-        );
+        console.log("🔧 This indicates the system prompt needs adjustment");
         state.setExpectingFunctionCall(false);
       }
     }, 8000); // 8 second timeout
@@ -760,10 +693,7 @@ async function handleTranscriptAnalysis(transcript, timestamp, state) {
   }
 
   if (hasName) {
-    console.log(
-      `[${timestamp}] 👤 CUSTOMER_NAME_DETECTED:`,
-      transcript
-    );
+    console.log(`[${timestamp}] 👤 CUSTOMER_NAME_DETECTED:`, transcript);
     console.log(
       `[${timestamp}] 🚨 NEXT: Booking request should trigger function call!`
     );
@@ -780,13 +710,8 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
   const { businessConfig, deepgramWs, state } = context;
 
   console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL DETECTED! 🚨🚨`);
-  console.log(
-    `[${timestamp}] ✅ SUCCESS: AI calling function as expected!`
-  );
-  console.log(
-    `[${timestamp}] 🔧 Function:`,
-    deepgramData.function_name
-  );
+  console.log(`[${timestamp}] ✅ SUCCESS: AI calling function as expected!`);
+  console.log(`[${timestamp}] 🔧 Function:`, deepgramData.function_name);
   console.log(
     `[${timestamp}] 📋 Parameters:`,
     JSON.stringify(deepgramData.parameters, null, 2)
@@ -804,26 +729,20 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
   }
 
   if (deepgramWs && businessConfig) {
-    console.log(
-      `[${timestamp}] 🔧 CALLING: handleFunctionCall...`
-    );
+    console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall...`);
     await handleFunctionCall(
       deepgramWs,
       deepgramData,
-      businessConfig
+      businessConfig,
+      context.callSid
     );
-    console.log(
-      `[${timestamp}] ✅ COMPLETED: handleFunctionCall`
-    );
+    console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall`);
   } else {
     console.error(
       `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
     );
     console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
-    console.log(
-      `[${timestamp}]    - businessConfig:`,
-      !!businessConfig
-    );
+    console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
   }
 }
 
@@ -833,15 +752,15 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
  * @param {string} timestamp - Current timestamp
  * @param {Object} context - Context object
  */
-async function handleFunctionCallRequestMessage(deepgramData, timestamp, context) {
+async function handleFunctionCallRequestMessage(
+  deepgramData,
+  timestamp,
+  context
+) {
   const { businessConfig, deepgramWs, state } = context;
 
-  console.log(
-    `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`
-  );
-  console.log(
-    `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
-  );
+  console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`);
+  console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
   console.log(
     `[${timestamp}] 📋 Functions:`,
     JSON.stringify(deepgramData.functions, null, 2)
@@ -861,10 +780,7 @@ async function handleFunctionCallRequestMessage(deepgramData, timestamp, context
 
   // Process each function in the request
   for (const func of deepgramData.functions) {
-    console.log(
-      `[${timestamp}] 🔧 Processing function:`,
-      func.name
-    );
+    console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
 
     // Create the function call data in the expected format
     const functionCallData = {
@@ -877,11 +793,7 @@ async function handleFunctionCallRequestMessage(deepgramData, timestamp, context
       console.log(
         `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
       );
-      await handleFunctionCall(
-        deepgramWs,
-        functionCallData,
-        businessConfig
-      );
+      await handleFunctionCall(deepgramWs, functionCallData, businessConfig);
       console.log(
         `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
       );
@@ -889,14 +801,8 @@ async function handleFunctionCallRequestMessage(deepgramData, timestamp, context
       console.error(
         `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
       );
-      console.log(
-        `[${timestamp}]    - deepgramWs:`,
-        !!deepgramWs
-      );
-      console.log(
-        `[${timestamp}]    - businessConfig:`,
-        !!businessConfig
-      );
+      console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
+      console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
     }
   }
 

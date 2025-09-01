@@ -16,13 +16,15 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 // Basic health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 // Start the HTTP server
 server.listen(config.websocket.port, () => {
-  console.log(`HTTP server with WebSocket support running on port ${config.websocket.port}`);
+  console.log(
+    `HTTP server with WebSocket support running on port ${config.websocket.port}`
+  );
 });
 
 // Handle WebSocket connections
@@ -103,9 +105,16 @@ wss.on("connection", async (ws, req) => {
                 expectingFunctionCall,
                 functionCallTimeout,
                 deepgramReady,
-                setExpectingFunctionCall: (value) => { expectingFunctionCall = value; },
-                setFunctionCallTimeout: (value) => { functionCallTimeout = value; },
-                setDeepgramReady: (value) => { deepgramReady = value; }
+                callSid,
+                setExpectingFunctionCall: (value) => {
+                  expectingFunctionCall = value;
+                },
+                setFunctionCallTimeout: (value) => {
+                  functionCallTimeout = value;
+                },
+                setDeepgramReady: (value) => {
+                  deepgramReady = value;
+                },
               }
             );
           });

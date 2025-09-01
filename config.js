@@ -26,6 +26,10 @@ export function getConfig() {
     deepgram: {
       apiKey: process.env.DEEPGRAM_API_KEY,
     },
+    twilio: {
+      accountSid: process.env.TWILIO_ACCOUNT_SID,
+      authToken: process.env.TWILIO_AUTH_TOKEN,
+    },
     nextjs: {
       siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
       internalApiSecret: process.env.INTERNAL_API_SECRET,
@@ -43,11 +47,16 @@ export function validateConfig() {
     { key: "NEXT_PUBLIC_SUPABASE_URL", value: config.supabase.url },
     { key: "SUPABASE_SERVICE_ROLE_KEY", value: config.supabase.serviceRoleKey },
     { key: "DEEPGRAM_API_KEY", value: config.deepgram.apiKey },
+    { key: "TWILIO_ACCOUNT_SID", value: config.twilio.accountSid },
+    { key: "TWILIO_AUTH_TOKEN", value: config.twilio.authToken },
   ];
-  
+
   // INTERNAL_API_SECRET is optional for development
   if (config.environment === "production" && !config.nextjs.internalApiSecret) {
-    required.push({ key: "INTERNAL_API_SECRET", value: config.nextjs.internalApiSecret });
+    required.push({
+      key: "INTERNAL_API_SECRET",
+      value: config.nextjs.internalApiSecret,
+    });
   }
 
   const missing = required.filter(({ value }) => !value);

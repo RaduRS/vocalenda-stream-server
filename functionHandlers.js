@@ -13,7 +13,8 @@ const config = getConfig();
 export async function handleFunctionCall(
   deepgramWs,
   functionCallData,
-  businessConfig
+  businessConfig,
+  callSid = null
 ) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
@@ -70,6 +71,10 @@ export async function handleFunctionCall(
 
       case "create_booking":
         result = await createBooking(businessConfig, parameters);
+        break;
+
+      case "end_call":
+        result = await endCall(callSid, parameters);
         break;
 
       default:
@@ -143,7 +148,10 @@ export async function getAvailableSlots(businessConfig, params) {
     `[${timestamp}] 📋 Services count:`,
     businessConfig?.services?.length
   );
-  console.log(`[${timestamp}] 🌐 Site URL:`, config.nextjs?.siteUrl || 'Not configured');
+  console.log(
+    `[${timestamp}] 🌐 Site URL:`,
+    config.nextjs?.siteUrl || "Not configured"
+  );
   console.log(
     `[${timestamp}] 🔑 Secret exists:`,
     !!config.nextjs?.internalApiSecret
@@ -338,31 +346,36 @@ export async function createBooking(businessConfig, params) {
 
     // Calculate start and end times with proper timezone handling
     const business = businessConfig.business;
-    const businessTimezone = business.timezone || 'UTC';
-    
-    console.log(`🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`);
-    
+    const businessTimezone = business.timezone || "UTC";
+
+    console.log(
+      `🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`
+    );
+
     // Create datetime in the business timezone and convert to UTC
     const appointmentDateTime = `${date}T${time}:00`;
-    
+
     // Parse the date/time as if it's in the business timezone
     // This ensures that "3:30 PM" in the business timezone gets stored correctly
     // We treat the input time as being in the business timezone
     const localDateTime = new Date(appointmentDateTime);
     const startTime = fromZonedTime(localDateTime, businessTimezone);
-    
+
     const endTime = new Date(
       startTime.getTime() + service.duration_minutes * 60000
     );
-    
-    console.log(`🕐 Original datetime (business local): ${appointmentDateTime}`);
+
+    console.log(
+      `🕐 Original datetime (business local): ${appointmentDateTime}`
+    );
     console.log(`🕐 Business timezone: ${businessTimezone}`);
     console.log(`🕐 Local DateTime object: ${localDateTime.toISOString()}`);
     console.log(`🕐 Converted to UTC: ${startTime.toISOString()}`);
     console.log(`🕐 End time (UTC): ${endTime.toISOString()}`);
-    
+
     // Show the difference for debugging
-    const timeDiffHours = (startTime.getTime() - localDateTime.getTime()) / (1000 * 60 * 60);
+    const timeDiffHours =
+      (startTime.getTime() - localDateTime.getTime()) / (1000 * 60 * 60);
     console.log(`🕐 Timezone offset applied: ${timeDiffHours} hours`);
 
     // Prepare booking data for the Next.js API
@@ -380,9 +393,7 @@ export async function createBooking(businessConfig, params) {
     console.log("📞 Calling internal Next.js booking API...");
     console.log(
       "🔗 API URL:",
-      `${
-        config.nextjs.siteUrl || "http://localhost:3000"
-      }/api/internal/booking`
+      `${config.nextjs.siteUrl || "http://localhost:3000"}/api/internal/booking`
     );
     console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
 
@@ -431,5 +442,54 @@ export async function createBooking(businessConfig, params) {
   } catch (error) {
     console.error("Error in createBooking:", error);
     return { error: "Booking failed" };
+  }
+}
+
+/**
+ * End the current Twilio call
+ * @param {string} callSid - The Twilio call SID to terminate
+ * @param {Object} params - Parameters including reason for ending the call
+ * @returns {Object} Result of call termination or error
+ */
+export async function endCall(callSid, params) {
+  try {
+    console.log(
+      "📞 endCall called with params:",
+      JSON.stringify(params, null, 2)
+    );
+    console.log("📞 Call SID:", callSid);
+
+    const { reason } = params;
+
+    if (!callSid) {
+      console.error("❌ No callSid available to end call");
+      return { error: "Call ID not available" };
+    }
+
+    // Initialize Twilio client
+    const twilio = (await import("twilio")).default(
+      config.twilio.accountSid,
+      config.twilio.authToken
+    );
+
+    console.log(`📞 Attempting to end call with SID: ${callSid}`);
+    console.log(`📝 Reason: ${reason}`);
+
+    // Update the call to completed status
+    const call = await twilio.calls(callSid).update({
+      status: "completed",
+    });
+
+    console.log(`✅ Call ended successfully:`, call.status);
+
+    return {
+      success: true,
+      message: `Call ended: ${reason}`,
+      callSid: callSid,
+      status: call.status,
+    };
+  } catch (error) {
+    console.error("❌ Error ending call:", error);
+    return { error: "Failed to end call" };
   }
 }
