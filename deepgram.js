@@ -736,7 +736,8 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
       deepgramWs,
       deepgramData,
       businessConfig,
-      context.callSid
+      context.callSid,
+      context.callerPhone
     );
     console.log(`[${timestamp}] ✅ COMPLETED: handleFunctionCall`);
   } else {
@@ -799,7 +800,8 @@ async function handleFunctionCallRequestMessage(
         deepgramWs,
         functionCallData,
         businessConfig,
-        context.callSid
+        context.callSid,
+        context.callerPhone
       );
       console.log(
         `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`

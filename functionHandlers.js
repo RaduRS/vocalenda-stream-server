@@ -3,6 +3,44 @@ import { getConfig } from "./config.js";
 
 const config = getConfig();
 
+// In-memory session store for call context
+const callSessions = new Map();
+
+/**
+ * Store session data for a call
+ * @param {string} callSid - The Twilio call SID
+ * @param {Object} sessionData - Data to store for this call session
+ */
+export function setCallSession(callSid, sessionData) {
+  if (!callSid) return;
+  const existing = callSessions.get(callSid) || {};
+  callSessions.set(callSid, { ...existing, ...sessionData });
+  console.log(
+    `📝 Session updated for call ${callSid}:`,
+    callSessions.get(callSid)
+  );
+}
+
+/**
+ * Get session data for a call
+ * @param {string} callSid - The Twilio call SID
+ * @returns {Object} Session data or empty object
+ */
+export function getCallSession(callSid) {
+  if (!callSid) return {};
+  return callSessions.get(callSid) || {};
+}
+
+/**
+ * Clear session data for a call
+ * @param {string} callSid - The Twilio call SID
+ */
+export function clearCallSession(callSid) {
+  if (!callSid) return;
+  callSessions.delete(callSid);
+  console.log(`🗑️ Session cleared for call ${callSid}`);
+}
+
 /**
  * Main function call handler that routes function calls to appropriate handlers
  * @param {WebSocket} deepgramWs - The Deepgram WebSocket connection
@@ -13,8 +51,13 @@ export async function handleFunctionCall(
   deepgramWs,
   functionCallData,
   businessConfig,
-  callSid = null
+  callSid = null,
+  callerPhone = null
 ) {
+  // Store caller phone in session if provided
+  if (callSid && callerPhone) {
+    setCallSession(callSid, { callerPhone });
+  }
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
   console.log(
@@ -69,11 +112,11 @@ export async function handleFunctionCall(
         break;
 
       case "create_booking":
-        result = await createBooking(businessConfig, parameters);
+        result = await createBooking(businessConfig, parameters, callSid);
         break;
 
       case "update_booking":
-        result = await updateBooking(businessConfig, parameters);
+        result = await updateBooking(businessConfig, parameters, callSid);
         break;
 
       case "cancel_booking":
@@ -291,7 +334,7 @@ export async function getAvailableSlots(businessConfig, params) {
  * @param {Object} params - Booking parameters including customer info, service, date, time
  * @returns {Object} Booking result or error
  */
-export async function createBooking(businessConfig, params) {
+export async function createBooking(businessConfig, params, callSid = null) {
   try {
     console.log(
       "🎯 createBooking called with params:",
@@ -303,6 +346,20 @@ export async function createBooking(businessConfig, params) {
     );
 
     const { customer_name, service_id, date, time, customer_phone } = params;
+
+    // Get caller phone from session if not provided in params
+    const session = getCallSession(callSid);
+    const phoneToUse = customer_phone || session.callerPhone;
+
+    // Store customer info in session for future use
+    if (callSid && customer_name) {
+      setCallSession(callSid, {
+        customerName: customer_name,
+        lastBookingDate: date,
+        lastBookingTime: time,
+        lastServiceId: service_id,
+      });
+    }
 
     // Validate required parameters
     if (!customer_name || !service_id || !date || !time) {
@@ -384,9 +441,11 @@ export async function createBooking(businessConfig, params) {
       startTime: startTime,
       endTime: endTimeString,
       customerName: customer_name,
-      customerPhone: customer_phone || null,
+      customerPhone: phoneToUse || null,
       customerEmail: null, // Voice calls don't typically capture email
-      notes: `Voice booking - Customer: ${customer_name}`,
+      notes: `Voice booking - Customer: ${customer_name}${
+        phoneToUse ? ` - Phone: ${phoneToUse}` : ""
+      }`,
     };
 
     console.log("📞 Calling internal Next.js booking API...");
@@ -450,7 +509,7 @@ export async function createBooking(businessConfig, params) {
  * @param {Object} params - Parameters including customer details and new booking info
  * @returns {Object} Update result or error
  */
-export async function updateBooking(businessConfig, params) {
+export async function updateBooking(businessConfig, params, callSid = null) {
   try {
     console.log(
       "📝 updateBooking called with params:",
@@ -466,12 +525,55 @@ export async function updateBooking(businessConfig, params) {
       new_service_id,
     } = params;
 
+    // Get session data to fill in missing customer information
+    const session = getCallSession(callSid);
+    console.log("📋 Session data:", session);
+
+    // Use session data as fallback for missing information
+    const customerNameToUse = customer_name || session.customerName;
+    const currentDateToUse = current_date || session.lastBookingDate;
+    const currentTimeToUse = current_time || session.lastBookingTime;
+
+    console.log("🔄 Using customer info:", {
+      customerName: customerNameToUse,
+      currentDate: currentDateToUse,
+      currentTime: currentTimeToUse,
+    });
+
     const business = businessConfig.business;
 
     if (!business?.google_calendar_id) {
       console.error("❌ No Google Calendar connected for business");
       return { error: "Calendar not connected" };
     }
+
+    // Prepare request body with only defined values
+    const requestBody = {
+      business_id: business.id,
+      customer_name: customerNameToUse,
+      current_date: currentDateToUse,
+      current_time: currentTimeToUse,
+    };
+
+    // Update session with new booking details if provided
+    if (callSid && (new_date || new_time || new_service_id)) {
+      const sessionUpdate = {};
+      if (new_date) sessionUpdate.lastBookingDate = new_date;
+      if (new_time) sessionUpdate.lastBookingTime = new_time;
+      if (new_service_id) sessionUpdate.lastServiceId = new_service_id;
+      setCallSession(callSid, sessionUpdate);
+    }
+
+    // Only include new values if they are defined
+    if (new_date !== undefined) requestBody.new_date = new_date;
+    if (new_time !== undefined) requestBody.new_time = new_time;
+    if (new_service_id !== undefined)
+      requestBody.new_service_id = new_service_id;
+
+    console.log(
+      "📦 Update request body:",
+      JSON.stringify(requestBody, null, 2)
+    );
 
     // Call the internal Next.js API to update the booking
     const response = await fetch(
@@ -482,15 +584,7 @@ export async function updateBooking(businessConfig, params) {
           "Content-Type": "application/json",
           "X-Internal-Secret": config.nextjs.internalApiSecret,
         },
-        body: JSON.stringify({
-          business_id: business.id,
-          customer_name,
-          current_date,
-          current_time,
-          new_date,
-          new_time,
-          new_service_id,
-        }),
+        body: JSON.stringify(requestBody),
       }
     );
 
@@ -618,6 +712,9 @@ export async function endCall(callSid, params) {
     });
 
     console.log(`✅ Call ended successfully:`, call.status);
+
+    // Clear call session when call ends
+    clearCallSession(callSid);
 
     return {
       success: true,
