@@ -41,6 +41,8 @@ BUSINESS: ${business.name}`;
 2. Check if preferred time is available using get_available_slots
 3. If available, confirm and book directly. If not, suggest alternatives
 4. Use create_booking to confirm appointments
+5. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
+6. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
@@ -72,7 +74,9 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - When ending, say a polite farewell like "Thank you for calling [business name]! Have a great day!" THEN use end_call function
 - Don't keep talking after calling end_call
 
-Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.`;
+Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
+
+🚨 CRITICAL: NEVER output JSON, code blocks, or raw parameters. When you need to use a function, execute it directly from your available functions without showing any JSON or parameters to the customer. The system will handle the function execution automatically.`;
 
   return prompt;
 }
