@@ -133,7 +133,7 @@ export function handleWebSocketConnection(ws, req) {
                 try {
                   deepgramData = JSON.parse(messageStr);
                   console.log(`[${timestamp}] 📨 Deepgram JSON message TYPE: ${deepgramData.type}`);
-                  console.log(`[${timestamp}] 📨 Full JSON data:`, deepgramData);
+                  console.log(`[${timestamp}] 📨 Full JSON data:`, JSON.stringify(deepgramData, null, 2));
                   
                   // 🔍 DEBUGGING: Check for function call requests
                   if (deepgramData.type === "FunctionCallRequest") {
@@ -144,11 +144,19 @@ export function handleWebSocketConnection(ws, req) {
                     });
                   }
                   
-                  // 🔍 DEBUGGING: Check for speech results
+                  // 🔍 DEBUGGING: Check for speech results (regular STT)
                   if (deepgramData.type === "Results") {
                     console.log(`[${timestamp}] 🎯 SPEECH RESULTS DETECTED!`);
                     const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
                     console.log(`[${timestamp}] 📝 TRANSCRIPT: "${transcript}"`);
+                  }
+                  
+                  // 🔍 DEBUGGING: Check for AI agent messages
+                  if (deepgramData.type === "ConversationText" || deepgramData.type === "UserStartedSpeaking" || deepgramData.type === "UserStoppedSpeaking") {
+                    console.log(`[${timestamp}] 🤖 AI AGENT MESSAGE: ${deepgramData.type}`);
+                    if (deepgramData.text) {
+                      console.log(`[${timestamp}] 📝 AI AGENT TEXT: "${deepgramData.text}"`);
+                    }
                   }
                 } catch (parseError) {
                   // If we're receiving audio, Deepgram is clearly ready
