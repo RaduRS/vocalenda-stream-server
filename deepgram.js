@@ -15,8 +15,7 @@ const config = validateConfig();
  */
 export async function initializeDeepgram(
   businessConfig,
-  callContext,
-  handleFunctionCall
+  callContext
 ) {
   return new Promise((resolve, reject) => {
     const deepgramWs = new WebSocket(
