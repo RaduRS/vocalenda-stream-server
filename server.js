@@ -1,20 +1,29 @@
 import WebSocket, { WebSocketServer } from "ws";
-import url from "url";
+import express from "express";
+import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
-import { handleFunctionCall } from "./functionHandlers.js";
-import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { initializeDeepgram, handleDeepgramMessage } from "./deepgram.js";
 
 // Validate configuration on startup
 const config = validateConfig();
 
-// Create WebSocket server
-const wss = new WebSocketServer({
-  port: config.websocket.port,
+// Create Express app and HTTP server
+const app = express();
+const server = createServer(app);
+
+// Create WebSocket server attached to HTTP server
+const wss = new WebSocketServer({ server });
+
+// Basic health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-console.log(`WebSocket server running on port ${config.websocket.port}`);
+// Start the HTTP server
+server.listen(config.websocket.port, () => {
+  console.log(`HTTP server with WebSocket support running on port ${config.websocket.port}`);
+});
 
 // Handle WebSocket connections
 wss.on("connection", async (ws, req) => {
@@ -191,17 +200,17 @@ wss.on("connection", async (ws, req) => {
 
 // Handle graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("Shutting down WebSocket server...");
-  wss.close(() => {
-    console.log("WebSocket server closed");
+  console.log("Shutting down server...");
+  server.close(() => {
+    console.log("HTTP server closed");
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  console.log("Shutting down WebSocket server...");
-  wss.close(() => {
-    console.log("WebSocket server closed");
+  console.log("Shutting down server...");
+  server.close(() => {
+    console.log("HTTP server closed");
     process.exit(0);
   });
 });
