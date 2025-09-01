@@ -73,6 +73,14 @@ export async function handleFunctionCall(
         result = await createBooking(businessConfig, parameters);
         break;
 
+      case "update_booking":
+        result = await updateBooking(businessConfig, parameters);
+        break;
+
+      case "cancel_booking":
+        result = await cancelBooking(businessConfig, parameters);
+        break;
+
       case "end_call":
         result = await endCall(callSid, parameters);
         break;
@@ -442,6 +450,144 @@ export async function createBooking(businessConfig, params) {
   } catch (error) {
     console.error("Error in createBooking:", error);
     return { error: "Booking failed" };
+  }
+}
+
+/**
+ * Update an existing booking
+ * @param {Object} businessConfig - The business configuration
+ * @param {Object} params - Parameters including customer details and new booking info
+ * @returns {Object} Update result or error
+ */
+export async function updateBooking(businessConfig, params) {
+  try {
+    console.log(
+      "📝 updateBooking called with params:",
+      JSON.stringify(params, null, 2)
+    );
+
+    const {
+      customer_name,
+      current_date,
+      current_time,
+      new_date,
+      new_time,
+      new_service_id,
+    } = params;
+
+    const business = businessConfig.business;
+
+    if (!business?.google_calendar_id) {
+      console.error("❌ No Google Calendar connected for business");
+      return { error: "Calendar not connected" };
+    }
+
+    // Call the internal Next.js API to update the booking
+    const response = await fetch(
+      `${config.nextjs.siteUrl}/api/voice/update-booking`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Secret": config.nextjs.internalApiSecret,
+        },
+        body: JSON.stringify({
+          business_id: business.id,
+          customer_name,
+          current_date,
+          current_time,
+          new_date,
+          new_time,
+          new_service_id,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ Update booking API error:", response.status, errorText);
+      return {
+        error: `Failed to update booking: ${errorText}`,
+      };
+    }
+
+    const result = await response.json();
+    console.log("✅ Booking updated successfully:", result);
+
+    return {
+      success: true,
+      message: `Booking updated successfully for ${customer_name}`,
+      booking: result.booking,
+    };
+  } catch (error) {
+    console.error("❌ Error updating booking:", error);
+    return {
+      error: `Failed to update booking: ${error.message}`,
+    };
+  }
+}
+
+/**
+ * Cancel an existing booking
+ * @param {Object} businessConfig - The business configuration
+ * @param {Object} params - Parameters including customer details and booking info
+ * @returns {Object} Cancellation result or error
+ */
+export async function cancelBooking(businessConfig, params) {
+  try {
+    console.log(
+      "❌ cancelBooking called with params:",
+      JSON.stringify(params, null, 2)
+    );
+
+    const { customer_name, date, time, reason } = params;
+    const business = businessConfig.business;
+
+    if (!business?.google_calendar_id) {
+      console.error("❌ No Google Calendar connected for business");
+      return { error: "Calendar not connected" };
+    }
+
+    // Call the internal Next.js API to cancel the booking
+    const response = await fetch(
+      `${config.nextjs.siteUrl}/api/voice/cancel-booking`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Secret": config.nextjs.internalApiSecret,
+        },
+        body: JSON.stringify({
+          business_id: business.id,
+          customer_name,
+          date,
+          time,
+          reason: reason || "Customer requested cancellation",
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ Cancel booking API error:", response.status, errorText);
+      return {
+        error: `Failed to cancel booking: ${errorText}`,
+      };
+    }
+
+    const result = await response.json();
+    console.log("✅ Booking cancelled successfully:", result);
+
+    return {
+      success: true,
+      message: `Booking cancelled successfully for ${customer_name}`,
+      booking: result.booking,
+    };
+  } catch (error) {
+    console.error("❌ Error cancelling booking:", error);
+    return {
+      error: `Failed to cancel booking: ${error.message}`,
+    };
   }
 }
 
