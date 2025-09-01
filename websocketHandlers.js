@@ -132,7 +132,8 @@ export function handleWebSocketConnection(ws, req) {
                 const messageStr = deepgramMessage.toString('utf8');
                 try {
                   deepgramData = JSON.parse(messageStr);
-                  console.log(`[${timestamp}] 📨 Deepgram JSON message:`, deepgramData);
+                  console.log(`[${timestamp}] 📨 Deepgram JSON message TYPE: ${deepgramData.type}`);
+                  console.log(`[${timestamp}] 📨 Full JSON data:`, deepgramData);
                   
                   // 🔍 DEBUGGING: Check for function call requests
                   if (deepgramData.type === "FunctionCallRequest") {
@@ -141,6 +142,13 @@ export function handleWebSocketConnection(ws, req) {
                       arguments: deepgramData.function_call?.arguments,
                       call_id: deepgramData.function_call?.call_id
                     });
+                  }
+                  
+                  // 🔍 DEBUGGING: Check for speech results
+                  if (deepgramData.type === "Results") {
+                    console.log(`[${timestamp}] 🎯 SPEECH RESULTS DETECTED!`);
+                    const transcript = deepgramData.channel?.alternatives?.[0]?.transcript;
+                    console.log(`[${timestamp}] 📝 TRANSCRIPT: "${transcript}"`);
                   }
                 } catch (parseError) {
                   // If we're receiving audio, Deepgram is clearly ready
