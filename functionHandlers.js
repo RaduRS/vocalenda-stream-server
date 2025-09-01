@@ -1,4 +1,7 @@
 import WebSocket from "ws";
+import { getConfig } from "./config.js";
+
+const config = getConfig();
 
 /**
  * Main function call handler that routes function calls to appropriate handlers
@@ -139,10 +142,10 @@ export async function getAvailableSlots(businessConfig, params) {
     `[${timestamp}] 📋 Services count:`,
     businessConfig?.services?.length
   );
-  console.log(`[${timestamp}] 🌐 Site URL:`, process.env.NEXT_PUBLIC_SITE_URL);
+  console.log(`[${timestamp}] 🌐 Site URL:`, config.nextjs?.siteUrl || 'Not configured');
   console.log(
     `[${timestamp}] 🔑 Secret exists:`,
-    !!process.env.INTERNAL_API_SECRET
+    !!config.nextjs?.internalApiSecret
   );
 
   try {
@@ -217,13 +220,13 @@ export async function getAvailableSlots(businessConfig, params) {
 
     // Call calendar slots API to check availability (NOT for booking)
     // The /api/internal/booking endpoint is used for actual booking creation
-    const apiUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
 
     console.log(`[${timestamp}] 🌐 About to make API call:`);
     console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
     console.log(
       `[${timestamp}] 🔑 Secret exists:`,
-      !!process.env.INTERNAL_API_SECRET
+      !!config.nextjs?.internalApiSecret
     );
     console.log(`[${timestamp}] 🏢 Business ID:`, business.id);
     console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
@@ -232,7 +235,7 @@ export async function getAvailableSlots(businessConfig, params) {
     const response = await fetch(apiUrl, {
       method: "GET",
       headers: {
-        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+        "x-internal-secret": config.nextjs.internalApiSecret,
       },
     });
 
@@ -355,18 +358,18 @@ export async function createBooking(businessConfig, params) {
     console.log(
       "🔗 API URL:",
       `${
-        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+        config.nextjs.siteUrl || "http://localhost:3000"
       }/api/internal/booking`
     );
     console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
 
     // Call the internal Next.js booking API endpoint
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
     const response = await fetch(`${baseUrl}/api/internal/booking`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+        "x-internal-secret": config.nextjs.internalApiSecret,
       },
       body: JSON.stringify(bookingData),
     });
