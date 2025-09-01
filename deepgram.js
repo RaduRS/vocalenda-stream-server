@@ -31,7 +31,7 @@ export async function initializeDeepgram(
     });
 
     // Wait for Welcome message before sending configuration (like official example)
-    deepgramWs.on("message", async (message) => {
+    const initializationHandler = async (message) => {
       try {
         const timestamp = new Date().toISOString();
 
@@ -268,8 +268,8 @@ export async function initializeDeepgram(
             data.agent || "No agent config"
           );
 
-          // 🚨 CRITICAL: Remove initialization handler to prevent conflicts
-          deepgramWs.removeAllListeners('message');
+          // 🚨 CRITICAL: Remove only the initialization handler to prevent conflicts
+          deepgramWs.removeListener('message', initializationHandler);
           console.log("🔇 Initialization handler removed - main server will handle all future messages");
 
           // Resolve the promise with the connected WebSocket
@@ -337,7 +337,10 @@ export async function initializeDeepgram(
         );
         reject(error);
       }
-    });
+    };
+
+    // Register the initialization handler
+    deepgramWs.on("message", initializationHandler);
 
     deepgramWs.on("error", (error) => {
       console.error("Deepgram WebSocket error in initializeDeepgram:", error);
