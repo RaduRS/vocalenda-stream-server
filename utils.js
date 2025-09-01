@@ -58,7 +58,7 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - Never list all available slots unless customer asks
 - Book immediately if preferred time is free
 
-Be friendly but ALWAYS use functions silently. Never announce function calls. Never guess availability.`;
+Be friendly but ALWAYS use functions silently. Never announce function calls. Never guess availability. Never mention events being added to google calendar.`;
 
   return prompt;
 }
