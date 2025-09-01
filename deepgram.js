@@ -274,49 +274,10 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
           resolve(deepgramWs);
         } else if (data.type === "FunctionCallRequest") {
           console.log(
-            `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST in INIT! 🚨🚨`
+            `[${timestamp}] 🚨 FUNCTION_CALL_REQUEST during initialization - will be handled by websocketHandlers after SettingsApplied`
           );
-          console.log(
-            `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
-          );
-          console.log(
-            `[${timestamp}] 📋 Functions:`,
-            JSON.stringify(data.functions, null, 2)
-          );
-
-          // Pause KeepAlive during function processing
-          if (deepgramWs.pauseKeepAlive) {
-            deepgramWs.pauseKeepAlive();
-          }
-
-          // Process each function in the request
-          for (const func of data.functions) {
-            console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
-
-            // Create the function call data in the expected format
-            const functionCallData = {
-              function_name: func.name,
-              function_call_id: func.id,
-              parameters: JSON.parse(func.arguments),
-            };
-
-            console.log(
-              `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
-            );
-            await handleFunctionCall(
-              deepgramWs,
-              functionCallData,
-              businessConfig
-            );
-            console.log(
-              `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
-            );
-          }
-
-          // Resume KeepAlive after function processing
-          if (deepgramWs.resumeKeepAlive) {
-            deepgramWs.resumeKeepAlive();
-          }
+          // Don't process function calls during initialization
+          // Let websocketHandlers.js handle all function calls after SettingsApplied
         } else {
           console.log(
             `[${timestamp}] 📨 OTHER: Initialization message type:`,

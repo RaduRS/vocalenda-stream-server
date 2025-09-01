@@ -96,15 +96,12 @@ export function handleWebSocketConnection(ws, req) {
             try {
               const timestamp = new Date().toISOString();
 
-              // 🚨 FIX: Better binary detection
+              // 🚨 FIX: Enhanced binary detection to reduce false JSON parsing attempts
               if (Buffer.isBuffer(deepgramMessage)) {
-                const messageStr = deepgramMessage.toString('utf8');
-                
-                // Skip binary or malformed data
+                // Quick binary check - if it's clearly audio data, skip JSON parsing entirely
                 if (deepgramMessage.length === 0 || 
-                    messageStr.includes('\x00') || 
-                    messageStr.includes('�') ||
-                    (!messageStr.trim().startsWith('{') && !messageStr.trim().startsWith('['))) {
+                    deepgramMessage.length > 1000 || // Large buffers are likely audio
+                    deepgramMessage[0] !== 0x7B) { // 0x7B is '{' in ASCII
                   
                   // Forward audio to Twilio
                   if (data.start?.streamSid && deepgramReady) {
@@ -122,20 +119,20 @@ export function handleWebSocketConnection(ws, req) {
                   return;
                 }
 
-                // Try to parse JSON
+                // Only try JSON parsing for small buffers that start with '{'
+                const messageStr = deepgramMessage.toString('utf8');
                 try {
                   deepgramData = JSON.parse(messageStr);
                 } catch (parseError) {
-                  console.warn("⚠️ JSON parse failed - treating as audio");
+                  // Silently treat as audio - no need to log every audio packet
                   return;
                 }
               } else {
-                 // Handle non-buffer messages (shouldn't happen but just in case)
+                 // Handle non-buffer messages
                  const messageStr = deepgramMessage.toString();
                  try {
                    deepgramData = JSON.parse(messageStr);
                  } catch (parseError) {
-                   console.warn("⚠️ Non-buffer JSON parse failed - treating as audio");
                    return;
                  }
                }
