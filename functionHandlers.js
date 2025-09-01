@@ -1,6 +1,5 @@
 import WebSocket from "ws";
 import { getConfig } from "./config.js";
-import { fromZonedTime } from "date-fns-tz";
 
 const config = getConfig();
 
@@ -360,31 +359,22 @@ export async function createBooking(businessConfig, params) {
       `🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`
     );
 
-    // Create datetime in the business timezone and convert to UTC
+    // Create datetime in the business timezone (no conversion needed)
     const appointmentDateTime = `${date}T${time}:00`;
 
-    // Parse the date/time as if it's in the business timezone
-    // This ensures that "3:30 PM" in the business timezone gets stored correctly
-    // We treat the input time as being in the business timezone
-    const localDateTime = new Date(appointmentDateTime);
-    const startTime = fromZonedTime(localDateTime, businessTimezone);
-
+    // Parse the date/time as local business time
+    // The internal API will handle timezone properly for calendar events
+    const startTime = new Date(appointmentDateTime);
     const endTime = new Date(
       startTime.getTime() + service.duration_minutes * 60000
     );
 
     console.log(
-      `🕐 Original datetime (business local): ${appointmentDateTime}`
+      `🕐 Appointment datetime (business local): ${appointmentDateTime}`
     );
     console.log(`🕐 Business timezone: ${businessTimezone}`);
-    console.log(`🕐 Local DateTime object: ${localDateTime.toISOString()}`);
-    console.log(`🕐 Converted to UTC: ${startTime.toISOString()}`);
-    console.log(`🕐 End time (UTC): ${endTime.toISOString()}`);
-
-    // Show the difference for debugging
-    const timeDiffHours =
-      (startTime.getTime() - localDateTime.getTime()) / (1000 * 60 * 60);
-    console.log(`🕐 Timezone offset applied: ${timeDiffHours} hours`);
+    console.log(`🕐 Start time: ${startTime.toISOString()}`);
+    console.log(`🕐 End time: ${endTime.toISOString()}`);
 
     // Prepare booking data for the Next.js API
     const bookingData = {
