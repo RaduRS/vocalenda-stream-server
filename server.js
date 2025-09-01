@@ -28,9 +28,6 @@ wss.on("connection", async (ws, req) => {
   let expectingFunctionCall = false;
   let functionCallTimeout = null;
 
-  // Parse query parameters from the connection URL
-  const query = url.parse(req.url, true).query;
-
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());

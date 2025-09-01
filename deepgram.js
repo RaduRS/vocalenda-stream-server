@@ -268,6 +268,10 @@ export async function initializeDeepgram(
             data.agent || "No agent config"
           );
 
+          // 🚨 CRITICAL: Remove initialization handler to prevent conflicts
+          deepgramWs.removeAllListeners('message');
+          console.log("🔇 Initialization handler removed - main server will handle all future messages");
+
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
         } else if (data.type === "FunctionCallRequest") {
