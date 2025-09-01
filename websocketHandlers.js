@@ -90,61 +90,98 @@ export function handleWebSocketConnection(ws, req) {
           // Handle Deepgram messages
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
-              const messageStr = deepgramMessage.toString();
+              // First check if this is binary data
+              if (Buffer.isBuffer(deepgramMessage)) {
+                // Check if buffer contains mostly non-printable characters (likely audio)
+                const sampleSize = Math.min(100, deepgramMessage.length);
+                let nonPrintableCount = 0;
+                for (let i = 0; i < sampleSize; i++) {
+                  const byte = deepgramMessage[i];
+                  if (byte < 32 || byte > 126) {
+                    nonPrintableCount++;
+                  }
+                }
+                
+                // If more than 50% are non-printable, treat as binary audio
+                if (nonPrintableCount / sampleSize > 0.5) {
+                  console.log(
+                    `Processing binary audio data (${deepgramMessage.length} bytes)`
+                  );
 
+                  // Validate audio data integrity
+                  if (deepgramMessage.length === 0) {
+                    console.warn(
+                      "⚠️ Received empty audio buffer from Deepgram"
+                    );
+                    return;
+                  }
+
+                  // If we're receiving audio, Deepgram is clearly ready
+                  if (!deepgramReady) {
+                    console.log(
+                      "🎉 Deepgram is sending audio - marking as ready!"
+                    );
+                    deepgramReady = true;
+                  }
+
+                  // Validate that we have a valid stream ID
+                  if (!data.start?.streamSid) {
+                    console.warn(
+                      "⚠️ No streamSid available for audio forwarding"
+                    );
+                    return;
+                  }
+
+                  // Forward binary audio data to Twilio
+                  try {
+                    const audioMessage = {
+                      event: "media",
+                      streamSid: data.start.streamSid,
+                      media: {
+                        payload: deepgramMessage.toString("base64"),
+                      },
+                    };
+                    ws.send(JSON.stringify(audioMessage));
+                  } catch (error) {
+                    console.error(
+                      "❌ Error forwarding audio to Twilio:",
+                      error
+                    );
+                  }
+                  return;
+                }
+              }
+              
+              // Convert to string for JSON parsing
+              const messageStr = deepgramMessage.toString();
+              
               // Additional check: if it doesn't look like JSON, treat as binary
+              const trimmed = messageStr.trim();
               if (
-                !messageStr.trim().startsWith("{") &&
-                !messageStr.trim().startsWith("[")
+                !trimmed.startsWith("{") &&
+                !trimmed.startsWith("[") ||
+                trimmed.length === 0
               ) {
                 console.log(
-                  `Processing non-JSON data as binary audio (${deepgramMessage.length} bytes)`
+                  `Processing non-JSON string data as binary audio (${deepgramMessage.length} bytes)`
                 );
-
-                // Validate audio data integrity
-                if (deepgramMessage.length === 0) {
-                  console.warn(
-                    "⚠️ Received empty non-JSON audio buffer from Deepgram"
-                  );
-                  return;
-                }
-
-                // If we're receiving audio, Deepgram is clearly ready
-                if (!deepgramReady) {
-                  console.log(
-                    "🎉 Deepgram is sending audio - marking as ready!"
-                  );
-                  deepgramReady = true;
-                }
-
-                // Validate that we have a valid stream ID
-                if (!data.start?.streamSid) {
-                  console.warn(
-                    "⚠️ No streamSid available for non-JSON audio forwarding"
-                  );
-                  return;
-                }
-
-                // This is likely binary audio data, forward to Twilio with validation
-                try {
-                  const audioMessage = {
-                    event: "media",
-                    streamSid: data.start.streamSid,
-                    media: {
-                      payload: deepgramMessage.toString("base64"),
-                    },
-                  };
-                  ws.send(JSON.stringify(audioMessage));
-                } catch (error) {
-                  console.error(
-                    "❌ Error forwarding non-JSON audio to Twilio:",
-                    error
-                  );
-                }
+                return; // Skip processing malformed data
+              }
+              
+              // Attempt JSON parsing with better error handling
+              let deepgramData;
+              try {
+                deepgramData = JSON.parse(messageStr);
+              } catch (parseError) {
+                console.warn(
+                  `⚠️ Skipping malformed JSON data (${deepgramMessage.length} bytes):`,
+                  parseError.message
+                );
+                // Log first 100 chars for debugging without flooding logs
+                const preview = messageStr.substring(0, 100);
+                console.warn("Data preview:", preview + (messageStr.length > 100 ? "..." : ""));
                 return;
               }
-
-              const deepgramData = JSON.parse(messageStr);
 
               // This is a JSON message - log it fully with timestamp
               console.log(
@@ -332,122 +369,24 @@ export function handleWebSocketConnection(ws, req) {
                     deepgramData.text ||
                     "No response text"
                 );
-              } else if (deepgramData.type === "FunctionCall") {
+              } else if (deepgramData.type === "FunctionCall" || deepgramData.type === "FunctionCallRequest") {
                 console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL DETECTED! 🚨🚨`);
                 console.log(
-                  `[${timestamp}] ✅ SUCCESS: AI calling function as expected!`
+                  `[${timestamp}] ✅ Function call will be handled by deepgram.js to prevent duplicates`
                 );
                 console.log(
-                  `[${timestamp}] 🔧 Function:`,
-                  deepgramData.function_name
+                  `[${timestamp}] 🔧 Type:`,
+                  deepgramData.type
                 );
-                console.log(
-                  `[${timestamp}] 📋 Parameters:`,
-                  JSON.stringify(deepgramData.parameters, null, 2)
-                );
-                console.log(
-                  `[${timestamp}] 📦 Full payload:`,
-                  JSON.stringify(deepgramData, null, 2)
-                );
-
+                
                 // Clear expectation since function call happened
                 expectingFunctionCall = false;
                 if (functionCallTimeout) {
                   clearTimeout(functionCallTimeout);
                   functionCallTimeout = null;
                 }
-
-                if (deepgramWs && businessConfig) {
-                  console.log(
-                    `[${timestamp}] 🔧 CALLING: handleFunctionCall...`
-                  );
-                  await handleFunctionCall(
-                    deepgramWs,
-                    deepgramData,
-                    businessConfig
-                  );
-                  console.log(
-                    `[${timestamp}] ✅ COMPLETED: handleFunctionCall`
-                  );
-                } else {
-                  console.error(
-                    `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
-                  );
-                  console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
-                  console.log(
-                    `[${timestamp}]    - businessConfig:`,
-                    !!businessConfig
-                  );
-                }
-              } else if (deepgramData.type === "FunctionCallRequest") {
-                console.log(
-                  `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`
-                );
-                console.log(
-                  `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
-                );
-                console.log(
-                  `[${timestamp}] 📋 Functions:`,
-                  JSON.stringify(deepgramData.functions, null, 2)
-                );
-
-                // Clear expectation since function call happened
-                expectingFunctionCall = false;
-                if (functionCallTimeout) {
-                  clearTimeout(functionCallTimeout);
-                  functionCallTimeout = null;
-                }
-
-                // Pause KeepAlive during function processing
-                if (deepgramWs && deepgramWs.pauseKeepAlive) {
-                  deepgramWs.pauseKeepAlive();
-                }
-
-                // Process each function in the request
-                for (const func of deepgramData.functions) {
-                  console.log(
-                    `[${timestamp}] 🔧 Processing function:`,
-                    func.name
-                  );
-
-                  // Create the function call data in the expected format
-                  const functionCallData = {
-                    function_name: func.name,
-                    function_call_id: func.id,
-                    parameters: JSON.parse(func.arguments),
-                  };
-
-                  if (deepgramWs && businessConfig) {
-                    console.log(
-                      `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
-                    );
-                    await handleFunctionCall(
-                      deepgramWs,
-                      functionCallData,
-                      businessConfig
-                    );
-                    console.log(
-                      `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
-                    );
-                  } else {
-                    console.error(
-                      `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
-                    );
-                    console.log(
-                      `[${timestamp}]    - deepgramWs:`,
-                      !!deepgramWs
-                    );
-                    console.log(
-                      `[${timestamp}]    - businessConfig:`,
-                      !!businessConfig
-                    );
-                  }
-                }
-
-                // Resume KeepAlive after function processing
-                if (deepgramWs && deepgramWs.resumeKeepAlive) {
-                  deepgramWs.resumeKeepAlive();
-                }
+                
+                // Note: Function call handling is done in deepgram.js to prevent duplicate bookings
               } else if (deepgramData.type === "Error") {
                 console.error(
                   `[${timestamp}] ❌ DEEPGRAM_ERROR:`,
@@ -481,8 +420,8 @@ export function handleWebSocketConnection(ws, req) {
                 );
               }
             } catch (error) {
-              console.error("❌ Error parsing Deepgram message:", error);
-              console.error("Raw message:", deepgramMessage.toString());
+              console.error("❌ Unexpected error in Deepgram message handler:", error);
+              // Note: JSON parsing errors are now handled gracefully above
             }
           });
 
