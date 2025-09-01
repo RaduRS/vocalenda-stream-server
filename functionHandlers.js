@@ -359,29 +359,30 @@ export async function createBooking(businessConfig, params) {
       `🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`
     );
 
-    // Create datetime in the business timezone (no conversion needed)
+    // Create datetime string in business timezone format for calendar API
     const appointmentDateTime = `${date}T${time}:00`;
 
-    // Parse the date/time as local business time
-    // The internal API will handle timezone properly for calendar events
-    const startTime = new Date(appointmentDateTime);
-    const endTime = new Date(
-      startTime.getTime() + service.duration_minutes * 60000
-    );
+    // For calendar events, we need to send the datetime in the business timezone
+    // The calendar API expects the time as it should appear in the business timezone
+    const startTime = appointmentDateTime;
+    const endTime =
+      new Date(`${appointmentDateTime}Z`).getTime() +
+      service.duration_minutes * 60000;
+    const endTimeString = new Date(endTime).toISOString().slice(0, 19);
 
     console.log(
       `🕐 Appointment datetime (business local): ${appointmentDateTime}`
     );
     console.log(`🕐 Business timezone: ${businessTimezone}`);
-    console.log(`🕐 Start time: ${startTime.toISOString()}`);
-    console.log(`🕐 End time: ${endTime.toISOString()}`);
+    console.log(`🕐 Start time: ${startTime}`);
+    console.log(`🕐 End time: ${endTimeString}`);
 
     // Prepare booking data for the Next.js API
     const bookingData = {
       businessId: businessConfig.business.id,
       serviceId: service.id, // Use the actual service UUID, not the name
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
+      startTime: startTime,
+      endTime: endTimeString,
       customerName: customer_name,
       customerPhone: customer_phone || null,
       customerEmail: null, // Voice calls don't typically capture email
