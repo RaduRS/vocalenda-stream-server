@@ -26,6 +26,10 @@ export function getConfig() {
     deepgram: {
       apiKey: process.env.DEEPGRAM_API_KEY,
     },
+    nextjs: {
+      siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+      internalApiSecret: process.env.INTERNAL_API_SECRET,
+    },
     environment: process.env.NODE_ENV || "development",
   };
 }
@@ -40,6 +44,11 @@ export function validateConfig() {
     { key: "SUPABASE_SERVICE_ROLE_KEY", value: config.supabase.serviceRoleKey },
     { key: "DEEPGRAM_API_KEY", value: config.deepgram.apiKey },
   ];
+  
+  // INTERNAL_API_SECRET is optional for development
+  if (config.environment === "production" && !config.nextjs.internalApiSecret) {
+    required.push({ key: "INTERNAL_API_SECRET", value: config.nextjs.internalApiSecret });
+  }
 
   const missing = required.filter(({ value }) => !value);
 

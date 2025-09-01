@@ -1,27 +1,18 @@
 import WebSocket, { WebSocketServer } from "ws";
-import { createClient } from "@supabase/supabase-js";
 import url from "url";
-import dotenv from "dotenv";
+import { getConfig, validateConfig } from "./config.js";
+import { supabase } from "./database.js";
+import { loadBusinessConfig } from "./businessConfig.js";
 
-// Load environment variables
-// In production, use system environment variables
-// In development, load from .env.local
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ path: ".env.local" });
-}
-
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Validate configuration on startup
+const config = validateConfig();
 
 // Create WebSocket server
 const wss = new WebSocketServer({
-  port: process.env.WS_PORT || 8080,
+  port: config.websocket.port,
 });
 
-console.log(`WebSocket server running on port ${process.env.WS_PORT || 8080}`);
+console.log(`WebSocket server running on port ${config.websocket.port}`);
 
 // Handle WebSocket connections
 wss.on("connection", async (ws, req) => {
@@ -636,60 +627,14 @@ wss.on("connection", async (ws, req) => {
 });
 
 // Load business configuration from Supabase
-async function loadBusinessConfig(businessId) {
-  try {
-    const { data: business, error: businessError } = await supabase
-      .from("businesses")
-      .select("*")
-      .eq("id", businessId)
-      .single();
 
-    if (businessError || !business) {
-      console.error("Failed to load business:", businessError);
-      return null;
-    }
-
-    const { data: config, error: configError } = await supabase
-      .from("business_config")
-      .select("*")
-      .eq("business_id", businessId)
-      .single();
-
-    const { data: services, error: servicesError } = await supabase
-      .from("services")
-      .select("*")
-      .eq("business_id", businessId)
-      .eq("is_active", true);
-
-    // Log Google Calendar connection status for debugging
-    console.log(`📅 Business ${business.name} Google Calendar Status:`);
-    console.log(
-      `   - Calendar ID: ${business.google_calendar_id || "Not connected"}`
-    );
-    console.log(`   - Timezone: ${business.timezone || "Not set"}`);
-    console.log(
-      `   - Integration Config: ${
-        config?.integration_settings?.google ? "Available" : "Not available"
-      }`
-    );
-
-    return {
-      business,
-      config: config || null,
-      services: services || [],
-    };
-  } catch (error) {
-    console.error("Error loading business config:", error);
-    return null;
-  }
-}
 
 // Initialize Deepgram Voice Agent connection
 async function initializeDeepgram(businessConfig, callContext) {
   return new Promise((resolve, reject) => {
     const deepgramWs = new WebSocket(
       "wss://agent.deepgram.com/v1/agent/converse",
-      ["token", process.env.DEEPGRAM_API_KEY]
+      ["token", config.deepgram.apiKey]
     );
 
     deepgramWs.on("open", () => {
@@ -1269,10 +1214,10 @@ async function getAvailableSlots(businessConfig, params) {
     `[${timestamp}] 📋 Services count:`,
     businessConfig?.services?.length
   );
-  console.log(`[${timestamp}] 🌐 Site URL:`, process.env.NEXT_PUBLIC_SITE_URL);
+  console.log(`[${timestamp}] 🌐 Site URL:`, config.nextjs?.siteUrl || 'Not configured');
   console.log(
     `[${timestamp}] 🔑 Secret exists:`,
-    !!process.env.INTERNAL_API_SECRET
+    !!config.nextjs?.internalApiSecret
   );
 
   try {
@@ -1347,13 +1292,13 @@ async function getAvailableSlots(businessConfig, params) {
 
     // Call calendar slots API to check availability (NOT for booking)
     // The /api/internal/booking endpoint is used for actual booking creation
-    const apiUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
 
     console.log(`[${timestamp}] 🌐 About to make API call:`);
     console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
     console.log(
       `[${timestamp}] 🔑 Secret exists:`,
-      !!process.env.INTERNAL_API_SECRET
+      !!config.nextjs.internalApiSecret
     );
     console.log(`[${timestamp}] 🏢 Business ID:`, business.id);
     console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
@@ -1362,7 +1307,7 @@ async function getAvailableSlots(businessConfig, params) {
     const response = await fetch(apiUrl, {
       method: "GET",
       headers: {
-        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+        "x-internal-secret": config.nextjs.internalApiSecret,
       },
     });
 
@@ -1479,19 +1424,16 @@ async function createBooking(businessConfig, params) {
     console.log("📞 Calling internal Next.js booking API...");
     console.log(
       "🔗 API URL:",
-      `${
-        process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
-      }/api/internal/booking`
+      `${config.nextjs.siteUrl}/api/internal/booking`
     );
     console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
 
     // Call the internal Next.js booking API endpoint
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const response = await fetch(`${baseUrl}/api/internal/booking`, {
+    const response = await fetch(`${config.nextjs.siteUrl}/api/internal/booking`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET,
+        "x-internal-secret": config.nextjs.internalApiSecret,
       },
       body: JSON.stringify(bookingData),
     });
