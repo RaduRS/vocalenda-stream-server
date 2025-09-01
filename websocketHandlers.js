@@ -332,53 +332,7 @@ export function handleWebSocketConnection(ws, req) {
                     deepgramData.text ||
                     "No response text"
                 );
-              } else if (deepgramData.type === "FunctionCall") {
-                console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL DETECTED! 🚨🚨`);
-                console.log(
-                  `[${timestamp}] ✅ SUCCESS: AI calling function as expected!`
-                );
-                console.log(
-                  `[${timestamp}] 🔧 Function:`,
-                  deepgramData.function_name
-                );
-                console.log(
-                  `[${timestamp}] 📋 Parameters:`,
-                  JSON.stringify(deepgramData.parameters, null, 2)
-                );
-                console.log(
-                  `[${timestamp}] 📦 Full payload:`,
-                  JSON.stringify(deepgramData, null, 2)
-                );
-
-                // Clear expectation since function call happened
-                expectingFunctionCall = false;
-                if (functionCallTimeout) {
-                  clearTimeout(functionCallTimeout);
-                  functionCallTimeout = null;
-                }
-
-                if (deepgramWs && businessConfig) {
-                  console.log(
-                    `[${timestamp}] 🔧 CALLING: handleFunctionCall...`
-                  );
-                  await handleFunctionCall(
-                    deepgramWs,
-                    deepgramData,
-                    businessConfig
-                  );
-                  console.log(
-                    `[${timestamp}] ✅ COMPLETED: handleFunctionCall`
-                  );
-                } else {
-                  console.error(
-                    `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
-                  );
-                  console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
-                  console.log(
-                    `[${timestamp}]    - businessConfig:`,
-                    !!businessConfig
-                  );
-                }
+              // Removed duplicate FunctionCall handler - using FunctionCallRequest instead
               } else if (deepgramData.type === "FunctionCallRequest") {
                 console.log(
                   `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`
