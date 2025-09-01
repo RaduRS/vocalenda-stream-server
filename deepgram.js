@@ -301,7 +301,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
             await handleFunctionCall(
               deepgramWs,
               functionCallData,
-              businessConfig
+              businessConfig,
+              callContext.callSid
             );
             console.log(
               `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
@@ -496,6 +497,7 @@ export async function handleDeepgramMessage(
       deepgramWs,
       businessConfig,
       streamSid,
+      callSid: state.callSid,
       state: {
         expectingFunctionCall,
         functionCallTimeout,
