@@ -95,6 +95,7 @@ export function handleWebSocketConnection(ws, req) {
           deepgramWs.on("message", async (deepgramMessage) => {
             try {
               const timestamp = new Date().toISOString();
+              console.log(`[${timestamp}] 📨 DEEPGRAM MESSAGE RECEIVED: Type=${Buffer.isBuffer(deepgramMessage) ? 'Buffer' : 'String'}, Length=${deepgramMessage.length}`);
 
               // 🚨 FIX: Enhanced binary detection to reduce false JSON parsing attempts
               if (Buffer.isBuffer(deepgramMessage)) {
@@ -131,6 +132,16 @@ export function handleWebSocketConnection(ws, req) {
                 const messageStr = deepgramMessage.toString('utf8');
                 try {
                   deepgramData = JSON.parse(messageStr);
+                  console.log(`[${timestamp}] 📨 Deepgram JSON message:`, deepgramData);
+                  
+                  // 🔍 DEBUGGING: Check for function call requests
+                  if (deepgramData.type === "FunctionCallRequest") {
+                    console.log(`[${timestamp}] 🚨 FUNCTION CALL REQUEST DETECTED:`, {
+                      function_name: deepgramData.function_call?.name,
+                      arguments: deepgramData.function_call?.arguments,
+                      call_id: deepgramData.function_call?.call_id
+                    });
+                  }
                 } catch (parseError) {
                   // If we're receiving audio, Deepgram is clearly ready
                   if (!deepgramReady) {
@@ -362,6 +373,12 @@ export function handleWebSocketConnection(ws, req) {
                   `[${timestamp}] 📦 Full payload:`,
                   JSON.stringify(deepgramData, null, 2)
                 );
+                console.log(`[${timestamp}] 🔍 FUNCTION CALL DETAILS:`, {
+                  function_name: deepgramData.function_name,
+                  function_call_id: deepgramData.function_call_id,
+                  parameters: deepgramData.parameters,
+                  full_data: deepgramData
+                });
 
                 // Clear expectation since function call happened
                 expectingFunctionCall = false;
@@ -371,17 +388,24 @@ export function handleWebSocketConnection(ws, req) {
                 }
 
                 if (deepgramWs && businessConfig) {
-                  console.log(
-                    `[${timestamp}] 🔧 CALLING: handleFunctionCall...`
-                  );
-                  await handleFunctionCall(
-                    deepgramWs,
-                    deepgramData,
-                    businessConfig
-                  );
-                  console.log(
-                    `[${timestamp}] ✅ COMPLETED: handleFunctionCall`
-                  );
+                  try {
+                    console.log(
+                      `[${timestamp}] ⚡ CALLING: handleFunctionCall...`
+                    );
+                    await handleFunctionCall(
+                      deepgramWs,
+                      deepgramData,
+                      businessConfig
+                    );
+                    console.log(
+                      `[${timestamp}] ✅ COMPLETED: handleFunctionCall successfully`
+                    );
+                  } catch (functionError) {
+                    console.error(
+                      `[${timestamp}] ❌ ERROR in handleFunctionCall:`,
+                      functionError
+                    );
+                  }
                 } else {
                   console.error(
                     `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
@@ -403,6 +427,10 @@ export function handleWebSocketConnection(ws, req) {
                   `[${timestamp}] 📋 Functions:`,
                   JSON.stringify(deepgramData.functions, null, 2)
                 );
+                console.log(`[${timestamp}] 🔍 FUNCTION CALL DETAILS:`, {
+                  function_count: deepgramData.functions?.length || 0,
+                  full_data: deepgramData
+                });
 
                 // Clear expectation since function call happened
                 expectingFunctionCall = false;
@@ -422,6 +450,11 @@ export function handleWebSocketConnection(ws, req) {
                     `[${timestamp}] 🔧 Processing function:`,
                     func.name
                   );
+                  console.log(`[${timestamp}] 🔍 Function details:`, {
+                    name: func.name,
+                    id: func.id,
+                    arguments: func.arguments
+                  });
 
                   // Create the function call data in the expected format
                   const functionCallData = {
@@ -431,17 +464,24 @@ export function handleWebSocketConnection(ws, req) {
                   };
 
                   if (deepgramWs && businessConfig) {
-                    console.log(
-                      `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
-                    );
-                    await handleFunctionCall(
-                      deepgramWs,
-                      functionCallData,
-                      businessConfig
-                    );
-                    console.log(
-                      `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
-                    );
+                    try {
+                      console.log(
+                        `[${timestamp}] ⚡ CALLING: handleFunctionCall for ${func.name}...`
+                      );
+                      await handleFunctionCall(
+                        deepgramWs,
+                        functionCallData,
+                        businessConfig
+                      );
+                      console.log(
+                        `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name} successfully`
+                      );
+                    } catch (functionError) {
+                      console.error(
+                        `[${timestamp}] ❌ ERROR in handleFunctionCall for ${func.name}:`,
+                        functionError
+                      );
+                    }
                   } else {
                     console.error(
                       `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`

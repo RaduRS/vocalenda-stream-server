@@ -31,6 +31,13 @@ export async function handleFunctionCall(
     `[${timestamp}] 🔧 Function call received:`,
     JSON.stringify(functionCallData, null, 2)
   );
+  console.log(`[${timestamp}] 🔍 FUNCTION HANDLER DEBUG:`, {
+    function_name: functionCallData.function_name,
+    function_call_id: functionCallData.function_call_id,
+    parameters: functionCallData.parameters,
+    has_deepgramWs: !!deepgramWs,
+    has_businessConfig: !!businessConfig
+  });
   console.log(
     `[${timestamp}] 📋 Function name:`,
     functionCallData?.function_name
@@ -48,9 +55,21 @@ export async function handleFunctionCall(
       JSON.stringify(functionCallData, null, 2)
     );
     const { function_name, parameters } = functionCallData;
-    let result;
+  let result;
 
-    switch (function_name) {
+  if (functionCallData.function_name === "create_booking") {
+    console.log(`[${timestamp}] 📅 Creating booking with parameters:`, parameters);
+    console.log(`[${timestamp}] 🔍 BOOKING FUNCTION CALLED:`, {
+      customer_name: parameters.customer_name,
+      service_id: parameters.service_id,
+      date: parameters.date,
+      time: parameters.time,
+      customer_phone: parameters.customer_phone,
+      all_parameters: parameters
+    });
+  }
+
+  switch (function_name) {
       case "get_services":
         console.log("🔍 Processing get_services request...");
         console.log(
