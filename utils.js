@@ -58,6 +58,13 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - Never list all available slots unless customer asks
 - Book immediately if preferred time is free
 
+📝 BOOKING UPDATES & CANCELLATIONS:
+- For security, ALWAYS require EXACT customer name and current appointment details (date & time) to update or cancel
+- Use update_booking to change appointment time, date, or service
+- Use cancel_booking to cancel appointments
+- Never update/cancel without exact verification details
+- Example: "To update your appointment, I need your exact name and current appointment details"
+
 🔚 CALL ENDING:
 - When customer says goodbye, thanks you, or indicates they're finished, FIRST say a polite goodbye, THEN use end_call function
 - Examples: "Thanks, that's all I needed", "Great, see you tomorrow", "Perfect, goodbye"
@@ -135,6 +142,70 @@ export function getAvailableFunctions() {
       },
     },
     {
+      name: "update_booking",
+      description:
+        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "EXACT customer name as it appears in the booking",
+          },
+          current_date: {
+            type: "string",
+            description: "Current appointment date in YYYY-MM-DD format",
+          },
+          current_time: {
+            type: "string",
+            description: "Current appointment time in HH:MM format",
+          },
+          new_date: {
+            type: "string",
+            description:
+              "New appointment date in YYYY-MM-DD format (optional if only changing time)",
+          },
+          new_time: {
+            type: "string",
+            description:
+              "New appointment time in HH:MM format (optional if only changing date)",
+          },
+          new_service_id: {
+            type: "string",
+            description: "New service ID if changing service (optional)",
+          },
+        },
+        required: ["customer_name", "current_date", "current_time"],
+      },
+    },
+    {
+      name: "cancel_booking",
+      description:
+        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "EXACT customer name as it appears in the booking",
+          },
+          date: {
+            type: "string",
+            description: "Appointment date in YYYY-MM-DD format",
+          },
+          time: {
+            type: "string",
+            description: "Appointment time in HH:MM format",
+          },
+          reason: {
+            type: "string",
+            description: "Reason for cancellation (optional)",
+          },
+        },
+        required: ["customer_name", "date", "time"],
+      },
+    },
+    {
       name: "end_call",
       description:
         "End the phone call when the conversation has naturally concluded. Use this when the customer indicates they are finished (saying goodbye, thanking you, or expressing satisfaction with the service).",
@@ -143,7 +214,8 @@ export function getAvailableFunctions() {
         properties: {
           reason: {
             type: "string",
-            description: "Brief reason for ending the call (e.g., 'appointment booked', 'customer said goodbye', 'inquiry completed')",
+            description:
+              "Brief reason for ending the call (e.g., 'appointment booked', 'customer said goodbye', 'inquiry completed')",
           },
         },
         required: ["reason"],
