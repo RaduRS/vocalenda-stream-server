@@ -12,7 +12,8 @@ const config = getConfig();
 export async function handleFunctionCall(
   deepgramWs,
   functionCallData,
-  businessConfig
+  businessConfig,
+  audioContinuity = null
 ) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
@@ -30,6 +31,11 @@ export async function handleFunctionCall(
   );
   console.log(`[${timestamp}] 🏢 Business config exists:`, !!businessConfig);
   console.log(`[${timestamp}] 🌐 WebSocket state:`, deepgramWs?.readyState);
+
+  // Start audio continuity transition for smooth processing
+  if (audioContinuity) {
+    audioContinuity.startFunctionCallTransition();
+  }
 
   try {
     console.log(
@@ -94,6 +100,13 @@ export async function handleFunctionCall(
 
         // Add a small delay to ensure Deepgram processes the response before any KeepAlive
         await new Promise((resolve) => setTimeout(resolve, 1000));
+        
+        // End audio continuity transition after response is sent
+        if (audioContinuity) {
+          setTimeout(() => {
+            audioContinuity.endFunctionCallTransition();
+          }, 500); // Small delay to ensure response is processed
+        }
       } else {
         console.error(
           "❌ Cannot send function response - Deepgram connection not open"
