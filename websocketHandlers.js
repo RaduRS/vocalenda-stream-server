@@ -103,6 +103,14 @@ export function handleWebSocketConnection(ws, req) {
                     deepgramMessage.length > 1000 || // Large buffers are likely audio
                     deepgramMessage[0] !== 0x7B) { // 0x7B is '{' in ASCII
                   
+                  // If we're receiving audio, Deepgram is clearly ready
+                  if (!deepgramReady) {
+                    console.log(
+                      "🎉 Deepgram is sending audio - marking as ready!"
+                    );
+                    deepgramReady = true;
+                  }
+                  
                   // Forward audio to Twilio
                   if (data.start?.streamSid && deepgramReady) {
                     try {
@@ -124,6 +132,13 @@ export function handleWebSocketConnection(ws, req) {
                 try {
                   deepgramData = JSON.parse(messageStr);
                 } catch (parseError) {
+                  // If we're receiving audio, Deepgram is clearly ready
+                  if (!deepgramReady) {
+                    console.log(
+                      "🎉 Deepgram is sending audio - marking as ready!"
+                    );
+                    deepgramReady = true;
+                  }
                   // Silently treat as audio - no need to log every audio packet
                   return;
                 }
