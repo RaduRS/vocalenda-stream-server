@@ -42,7 +42,7 @@ export function validateConfig() {
   ];
 
   const missing = required.filter(({ value }) => !value);
-  
+
   if (missing.length > 0) {
     const missingKeys = missing.map(({ key }) => key).join(", ");
     throw new Error(`Missing required environment variables: ${missingKeys}`);

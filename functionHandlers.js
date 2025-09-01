@@ -1,9 +1,5 @@
 import WebSocket from "ws";
 
-// Add at the top of functionHandlers.js
-const recentCalls = new Map();
-const recentBookings = new Set();
-
 /**
  * Main function call handler that routes function calls to appropriate handlers
  * @param {WebSocket} deepgramWs - The Deepgram WebSocket connection
@@ -16,28 +12,11 @@ export async function handleFunctionCall(
   businessConfig
 ) {
   const timestamp = new Date().toISOString();
-  const callKey = `${functionCallData.function_name}_${JSON.stringify(functionCallData.parameters)}`;
-  
-  // 🚨 DEBOUNCE: Prevent duplicate calls within 5 seconds
-  const lastCall = recentCalls.get(callKey);
-  if (lastCall && (Date.now() - lastCall) < 5000) {
-    console.log(`[${timestamp}] 🔄 DEBOUNCED: Ignoring duplicate ${functionCallData.function_name} call`);
-    return;
-  }
-  
-  recentCalls.set(callKey, Date.now());
   console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
   console.log(
     `[${timestamp}] 🔧 Function call received:`,
     JSON.stringify(functionCallData, null, 2)
   );
-  console.log(`[${timestamp}] 🔍 FUNCTION HANDLER DEBUG:`, {
-    function_name: functionCallData.function_name,
-    function_call_id: functionCallData.function_call_id,
-    parameters: functionCallData.parameters,
-    has_deepgramWs: !!deepgramWs,
-    has_businessConfig: !!businessConfig
-  });
   console.log(
     `[${timestamp}] 📋 Function name:`,
     functionCallData?.function_name
@@ -55,21 +34,9 @@ export async function handleFunctionCall(
       JSON.stringify(functionCallData, null, 2)
     );
     const { function_name, parameters } = functionCallData;
-  let result;
+    let result;
 
-  if (functionCallData.function_name === "create_booking") {
-    console.log(`[${timestamp}] 📅 Creating booking with parameters:`, parameters);
-    console.log(`[${timestamp}] 🔍 BOOKING FUNCTION CALLED:`, {
-      customer_name: parameters.customer_name,
-      service_id: parameters.service_id,
-      date: parameters.date,
-      time: parameters.time,
-      customer_phone: parameters.customer_phone,
-      all_parameters: parameters
-    });
-  }
-
-  switch (function_name) {
+    switch (function_name) {
       case "get_services":
         console.log("🔍 Processing get_services request...");
         console.log(
@@ -317,18 +284,6 @@ export async function createBooking(businessConfig, params) {
     );
 
     const { customer_name, service_id, date, time, customer_phone } = params;
-
-    // 🚨 FIX: Add booking idempotency check before API call
-    const bookingKey = `${customer_name}_${service_id}_${date}_${time}`;
-    if (recentBookings.has(bookingKey)) {
-      console.log(`🚫 DUPLICATE BOOKING PREVENTED: ${bookingKey}`);
-      return { error: "Booking already in progress" };
-    }
-
-    recentBookings.add(bookingKey);
-
-    // Clear after 30 seconds
-    setTimeout(() => recentBookings.delete(bookingKey), 30000);
 
     // Validate required parameters
     if (!customer_name || !service_id || !date || !time) {

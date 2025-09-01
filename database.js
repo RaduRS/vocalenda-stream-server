@@ -6,15 +6,14 @@ import { getConfig } from "./config.js";
  */
 function createSupabaseClient() {
   const config = getConfig();
-  
+
   if (!config.supabase.url || !config.supabase.serviceRoleKey) {
-    throw new Error("Supabase configuration is missing. Please check your environment variables.");
+    throw new Error(
+      "Supabase configuration is missing. Please check your environment variables."
+    );
   }
-  
-  return createClient(
-    config.supabase.url,
-    config.supabase.serviceRoleKey
-  );
+
+  return createClient(config.supabase.url, config.supabase.serviceRoleKey);
 }
 
 // Export the initialized Supabase client
@@ -93,5 +92,5 @@ export const db = {
     }
 
     return data || [];
-  }
+  },
 };

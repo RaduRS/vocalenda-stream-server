@@ -12,7 +12,11 @@ const config = validateConfig();
  * @param {Function} handleFunctionCall - Function to handle function calls
  * @returns {Promise<WebSocket>} - Connected Deepgram WebSocket
  */
-export async function initializeDeepgram(businessConfig, callContext, handleFunctionCall) {
+export async function initializeDeepgram(
+  businessConfig,
+  callContext,
+  handleFunctionCall
+) {
   return new Promise((resolve, reject) => {
     const deepgramWs = new WebSocket(
       "wss://agent.deepgram.com/v1/agent/converse",
@@ -26,8 +30,8 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
       console.log("Connection readyState:", deepgramWs.readyState);
     });
 
-    // Create named initialization handler that can be removed specifically
-    const initializationHandler = async (message) => {
+    // Wait for Welcome message before sending configuration (like official example)
+    deepgramWs.on("message", async (message) => {
       try {
         const timestamp = new Date().toISOString();
 
@@ -264,20 +268,53 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
             data.agent || "No agent config"
           );
 
-          // 🚨 CRITICAL: Remove only THIS specific initialization handler
-          deepgramWs.removeListener('message', initializationHandler);
-          console.log(
-            `[${timestamp}] 🔇 READY: Initialization handler removed, websocketHandlers will process future messages`
-          );
-
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
         } else if (data.type === "FunctionCallRequest") {
           console.log(
-            `[${timestamp}] 🚨 FUNCTION_CALL_REQUEST during initialization - will be handled by websocketHandlers after SettingsApplied`
+            `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST in INIT! 🚨🚨`
           );
-          // Don't process function calls during initialization
-          // Let websocketHandlers.js handle all function calls after SettingsApplied
+          console.log(
+            `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
+          );
+          console.log(
+            `[${timestamp}] 📋 Functions:`,
+            JSON.stringify(data.functions, null, 2)
+          );
+
+          // Pause KeepAlive during function processing
+          if (deepgramWs.pauseKeepAlive) {
+            deepgramWs.pauseKeepAlive();
+          }
+
+          // Process each function in the request
+          for (const func of data.functions) {
+            console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
+
+            // Create the function call data in the expected format
+            const functionCallData = {
+              function_name: func.name,
+              function_call_id: func.id,
+              parameters: JSON.parse(func.arguments),
+            };
+
+            console.log(
+              `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
+            );
+            await handleFunctionCall(
+              deepgramWs,
+              functionCallData,
+              businessConfig
+            );
+            console.log(
+              `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
+            );
+          }
+
+          // Resume KeepAlive after function processing
+          if (deepgramWs.resumeKeepAlive) {
+            deepgramWs.resumeKeepAlive();
+          }
         } else {
           console.log(
             `[${timestamp}] 📨 OTHER: Initialization message type:`,
@@ -296,10 +333,7 @@ export async function initializeDeepgram(businessConfig, callContext, handleFunc
         );
         reject(error);
       }
-    };
-
-    // Wait for Welcome message before sending configuration (like official example)
-    deepgramWs.on("message", initializationHandler);
+    });
 
     deepgramWs.on("error", (error) => {
       console.error("Deepgram WebSocket error in initializeDeepgram:", error);
