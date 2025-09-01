@@ -4,6 +4,8 @@ import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
 import { initializeDeepgram, handleDeepgramMessage } from "./deepgram.js";
+import { AudioContinuityManager } from "./audioContinuity.js";
+import { ConnectionHealthMonitor } from "./connectionHealthMonitor.js";
 
 // Validate configuration on startup
 const config = validateConfig();
@@ -15,9 +17,71 @@ const server = createServer(app);
 // Create WebSocket server attached to HTTP server
 const wss = new WebSocketServer({ server });
 
+// Initialize health monitor
+const healthMonitor = new ConnectionHealthMonitor({
+  checkInterval: 10000,  // Check every 10 seconds
+  pingInterval: 30000,   // Ping every 30 seconds
+  latencyThreshold: 300  // 300ms latency threshold
+});
+
+// Global audio continuity manager for status endpoint
+let globalAudioContinuity = null;
+
+// Set up health warning callback
+healthMonitor.setHealthWarningCallback((warning) => {
+  console.warn('🚨 CONNECTION_HEALTH: Health warning detected:', {
+    unhealthyCount: warning.unhealthyConnections.length,
+    averageQuality: warning.globalMetrics.averageQualityScore,
+    activeConnections: warning.globalMetrics.activeConnections
+  });
+});
+
 // Basic health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Connection health status endpoint
+app.get('/health/connections', (req, res) => {
+  const globalMetrics = healthMonitor.getGlobalMetrics();
+  const connectionStatuses = healthMonitor.getAllConnectionStatuses();
+  
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    globalMetrics: globalMetrics,
+    connections: connectionStatuses,
+    summary: {
+      totalConnections: globalMetrics.totalConnections,
+      activeConnections: globalMetrics.activeConnections,
+      healthyConnections: globalMetrics.healthyConnections,
+      averageQualityScore: globalMetrics.averageQualityScore,
+      averageLatency: globalMetrics.averageLatency
+    }
+  });
+});
+
+// Audio continuity status endpoint
+app.get('/audio/status', (req, res) => {
+  if (!globalAudioContinuity) {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      audioContinuity: {
+        state: 'no_active_connection',
+        message: 'No active WebSocket connection'
+      }
+    });
+    return;
+  }
+  
+  const audioContinuityStatus = globalAudioContinuity.getStatus();
+  
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    audioContinuity: audioContinuityStatus
+  });
 });
 
 // Start the HTTP server
@@ -27,7 +91,10 @@ server.listen(config.websocket.port, () => {
 
 // Handle WebSocket connections
 wss.on("connection", async (ws, req) => {
-  console.log("New WebSocket connection established");
+  console.log("📞 New Twilio connection established");
+
+  // Generate unique connection ID
+  const connectionId = `twilio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   let deepgramWs = null;
   let businessId = null;
@@ -36,6 +103,38 @@ wss.on("connection", async (ws, req) => {
   let deepgramReady = false; // Track if Deepgram is ready to receive audio
   let expectingFunctionCall = false;
   let functionCallTimeout = null;
+  
+  // Initialize audio continuity manager
+  const audioContinuity = new AudioContinuityManager();
+  
+  // Set global reference for status endpoint
+  globalAudioContinuity = audioContinuity;
+  
+  // Register connection with health monitor
+  const connectionHealth = healthMonitor.registerConnection(connectionId, ws, {
+    type: 'twilio',
+    streamSid: null // Will be updated when available
+  });
+  
+  // Set up audio forwarding function for continuity manager
+    const forwardAudioToTwilio = (audioData) => {
+       if (streamSid) {
+         try {
+           const audioMessage = {
+             event: "media",
+             streamSid: streamSid,
+             media: {
+               payload: audioData.toString ? audioData.toString("base64") : audioData,
+             },
+           };
+           ws.send(JSON.stringify(audioMessage));
+         } catch (error) {
+           console.error("❌ Error forwarding audio via continuity:", error);
+         }
+       }
+     };
+    
+    audioContinuity.setForwardFunction(forwardAudioToTwilio);
 
   ws.on("message", async (message) => {
     try {
@@ -85,6 +184,17 @@ wss.on("connection", async (ws, req) => {
             });
             console.log("✅ Deepgram connection initialized successfully");
             console.log("Final readyState:", deepgramWs.readyState);
+            
+            // Register Deepgram connection with health monitor
+            const deepgramConnectionId = `deepgram_${connectionId}`;
+            healthMonitor.registerConnection(deepgramConnectionId, deepgramWs, {
+              type: 'deepgram',
+              businessId: businessId,
+              streamSid: data.start?.streamSid
+            });
+            
+            // Update Twilio connection metadata with streamSid
+            connectionHealth.metadata.streamSid = data.start?.streamSid;
           } catch (error) {
             console.error("❌ Failed to initialize Deepgram:", error);
             ws.close();
@@ -106,7 +216,8 @@ wss.on("connection", async (ws, req) => {
                 setExpectingFunctionCall: (value) => { expectingFunctionCall = value; },
                 setFunctionCallTimeout: (value) => { functionCallTimeout = value; },
                 setDeepgramReady: (value) => { deepgramReady = value; }
-              }
+              },
+              audioContinuity
             );
           });
 
@@ -137,38 +248,25 @@ wss.on("connection", async (ws, req) => {
             deepgramWs.readyState === WebSocket.OPEN &&
             deepgramReady
           ) {
-            // Validate incoming audio data
+            // Basic validation for audio data
             if (!data.media?.payload) {
-              console.warn("⚠️ Received media event without payload");
               return;
             }
 
             try {
-              // Convert base64 to buffer and validate
+              // Convert base64 to buffer - simplified processing
               const audioBuffer = Buffer.from(data.media.payload, "base64");
-
-              if (audioBuffer.length === 0) {
-                console.warn("⚠️ Received empty audio buffer from Twilio");
-                return;
+              
+              // Only check for completely empty buffers
+              if (audioBuffer.length > 0) {
+                // Use audio continuity system for smooth processing
+                audioContinuity.processAudioChunk(audioBuffer, (audio) => {
+                  deepgramWs.send(audio);
+                });
               }
-
-              // Validate buffer size (Twilio sends 160 bytes for 8kHz mulaw)
-              if (audioBuffer.length !== 160) {
-                console.warn(
-                  `⚠️ Unexpected audio buffer size: ${audioBuffer.length} bytes (expected 160)`
-                );
-              }
-
-              deepgramWs.send(audioBuffer);
             } catch (error) {
               console.error("❌ Error processing audio from Twilio:", error);
             }
-          } else {
-            console.log(
-              `⚠️ Cannot forward audio - deepgramWs ready: ${
-                !!deepgramWs && deepgramWs.readyState === WebSocket.OPEN
-              }, isReady: ${deepgramReady}`
-            );
           }
           break;
 
@@ -185,15 +283,44 @@ wss.on("connection", async (ws, req) => {
   });
 
   ws.on("close", () => {
-    console.log("Twilio WebSocket connection closed");
+    console.log("📞 Twilio connection closed");
+    
+    // Unregister connections from health monitor
+    healthMonitor.unregisterConnection(connectionId);
     if (deepgramWs) {
+      const deepgramConnectionId = `deepgram_${connectionId}`;
+      healthMonitor.unregisterConnection(deepgramConnectionId);
       deepgramWs.close();
+    }
+    
+    // Reset audio continuity manager
+    audioContinuity.reset();
+    
+    // Clear global reference if this was the active connection
+    if (globalAudioContinuity === audioContinuity) {
+      globalAudioContinuity = null;
     }
   });
 
   ws.on("error", (error) => {
-    console.error("Twilio WebSocket error:", error);
-  });
+    console.error("❌ Twilio WebSocket error:", error);
+    
+    // Unregister connections from health monitor
+    healthMonitor.unregisterConnection(connectionId);
+    if (deepgramWs) {
+      const deepgramConnectionId = `deepgram_${connectionId}`;
+      healthMonitor.unregisterConnection(deepgramConnectionId);
+      deepgramWs.close();
+    }
+    
+    // Reset audio continuity manager
+     audioContinuity.reset();
+     
+     // Clear global reference if this was the active connection
+     if (globalAudioContinuity === audioContinuity) {
+       globalAudioContinuity = null;
+     }
+   });
 });
 
 // Load business configuration from Supabase
