@@ -15,7 +15,8 @@ const config = validateConfig();
 export async function initializeDeepgram(
   businessConfig,
   callContext,
-  handleFunctionCall
+  handleFunctionCall,
+  onReady = null
 ) {
   return new Promise((resolve, reject) => {
     const deepgramWs = new WebSocket(
@@ -267,6 +268,12 @@ export async function initializeDeepgram(
             `[${timestamp}] 🔧 APPLIED: Agent settings:`,
             data.agent || "No agent config"
           );
+
+          // Notify that Deepgram is ready
+          if (onReady && typeof onReady === 'function') {
+            console.log(`[${timestamp}] 📞 CALLBACK: Notifying websocketHandlers that Deepgram is ready`);
+            onReady();
+          }
 
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);

@@ -79,7 +79,11 @@ export function handleWebSocketConnection(ws, req) {
           deepgramWs = await initializeDeepgram(
             businessConfig,
             callContext,
-            handleFunctionCall
+            handleFunctionCall,
+            () => {
+              deepgramReady = true;
+              console.log("🎉 Deepgram ready state updated: true");
+            }
           );
 
           if (!deepgramWs) {
@@ -92,8 +96,8 @@ export function handleWebSocketConnection(ws, req) {
             try {
               // First check if this is binary data
               if (Buffer.isBuffer(deepgramMessage)) {
-                // Check if buffer contains mostly non-printable characters (likely audio)
-                const sampleSize = Math.min(100, deepgramMessage.length);
+                // Quick binary detection - check first few bytes only for performance
+                const sampleSize = Math.min(20, deepgramMessage.length); // Reduced sample size
                 let nonPrintableCount = 0;
                 for (let i = 0; i < sampleSize; i++) {
                   const byte = deepgramMessage[i];
@@ -104,9 +108,12 @@ export function handleWebSocketConnection(ws, req) {
                 
                 // If more than 50% are non-printable, treat as binary audio
                 if (nonPrintableCount / sampleSize > 0.5) {
-                  console.log(
-                    `Processing binary audio data (${deepgramMessage.length} bytes)`
-                  );
+                  // Reduce audio processing logs to prevent spam
+                  if (Math.random() < 0.1) { // Log only 10% of audio messages
+                    console.log(
+                      `Processing binary audio data (${deepgramMessage.length} bytes)`
+                    );
+                  }
 
                   // Validate audio data integrity
                   if (deepgramMessage.length === 0) {
@@ -162,9 +169,12 @@ export function handleWebSocketConnection(ws, req) {
                 !trimmed.startsWith("[") ||
                 trimmed.length === 0
               ) {
-                console.log(
-                  `Processing non-JSON string data as binary audio (${deepgramMessage.length} bytes)`
-                );
+                // Reduce non-JSON processing logs to prevent spam
+                if (Math.random() < 0.1) { // Log only 10% of non-JSON messages
+                  console.log(
+                    `Processing non-JSON string data as binary audio (${deepgramMessage.length} bytes)`
+                  );
+                }
                 return; // Skip processing malformed data
               }
               
@@ -199,7 +209,7 @@ export function handleWebSocketConnection(ws, req) {
 
               // Handle different types of Deepgram messages
               if (deepgramData.type === "SettingsApplied") {
-                // Deepgram is now ready to receive audio
+                // Deepgram is now ready to receive audio (ready state handled via callback)
                 console.log(
                   `[${timestamp}] ✅ SETTINGS_APPLIED: Deepgram ready to receive audio`
                 );
@@ -211,7 +221,6 @@ export function handleWebSocketConnection(ws, req) {
                   `[${timestamp}] 🤖 Agent config:`,
                   deepgramData.agent || "No agent config"
                 );
-                deepgramReady = true;
                 console.log(
                   `[${timestamp}] 🎙️ Agent ready with automatic greeting`
                 );
@@ -452,38 +461,37 @@ export function handleWebSocketConnection(ws, req) {
             deepgramWs.readyState === WebSocket.OPEN &&
             deepgramReady
           ) {
-            // Validate incoming audio data
+            // Quick validation - only check for payload existence
             if (!data.media?.payload) {
-              console.warn("⚠️ Received media event without payload");
-              return;
+              return; // Silently skip invalid payloads to reduce log noise
             }
 
             try {
-              // Convert base64 to buffer and validate
+              // Convert base64 to buffer - minimal validation for performance
               const audioBuffer = Buffer.from(data.media.payload, "base64");
-
+              
+              // Only validate if buffer is empty (critical error)
               if (audioBuffer.length === 0) {
-                console.warn("⚠️ Received empty audio buffer from Twilio");
-                return;
+                return; // Silently skip empty buffers
               }
 
-              // Validate buffer size (Twilio sends 160 bytes for 8kHz mulaw)
-              if (audioBuffer.length !== 160) {
-                console.warn(
-                  `⚠️ Unexpected audio buffer size: ${audioBuffer.length} bytes (expected 160)`
-                );
-              }
-
+              // Send directly without size validation for better performance
               deepgramWs.send(audioBuffer);
             } catch (error) {
-              console.error("❌ Error processing audio from Twilio:", error);
+              // Only log critical errors to reduce noise
+              if (error.message.includes('Invalid base64')) {
+                console.error("❌ Invalid base64 audio data from Twilio");
+              }
             }
           } else {
-            console.log(
-              `⚠️ Cannot forward audio - deepgramWs ready: ${
-                !!deepgramWs && deepgramWs.readyState === WebSocket.OPEN
-              }, isReady: ${deepgramReady}`
-            );
+            // Reduce frequency of "cannot forward" messages to prevent log spam
+            if (Math.random() < 0.01) { // Log only 1% of failed attempts
+              console.log(
+                `⚠️ Cannot forward audio - deepgramWs ready: ${
+                  !!deepgramWs && deepgramWs.readyState === WebSocket.OPEN
+                }, isReady: ${deepgramReady}`
+              );
+            }
           }
           break;
 
