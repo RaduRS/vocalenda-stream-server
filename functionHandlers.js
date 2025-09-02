@@ -3,6 +3,28 @@ import { getConfig } from "./config.js";
 
 const config = getConfig();
 
+/**
+ * Send smooth audio transition to prevent crackling during function calls
+ * @param {WebSocket} deepgramWs - Deepgram WebSocket connection
+ */
+async function sendSmoothTransition(deepgramWs) {
+  try {
+    if (!deepgramWs || deepgramWs.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    // Send a brief pause message to create smooth transition
+    const transitionMessage = {
+      type: "KeepAlive"
+    };
+    
+    deepgramWs.send(JSON.stringify(transitionMessage));
+    console.log("🎵 Sent smooth transition signal to prevent crackling");
+  } catch (error) {
+    console.error("Error sending smooth transition:", error);
+  }
+}
+
 // In-memory session store for call context
 const callSessions = new Map();
 
@@ -149,7 +171,9 @@ export async function handleFunctionCall(
         console.log("🔄 Waiting for Deepgram to process the response...");
 
         // Add a small delay to ensure Deepgram processes the response before any KeepAlive
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Also send a brief silence to prevent audio crackling after function calls
+        await sendSmoothTransition(deepgramWs);
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } else {
         console.error(
           "❌ Cannot send function response - Deepgram connection not open"
