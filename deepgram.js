@@ -370,10 +370,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
 let audioBuffer = [];
 let isStreamingAudio = false;
 let audioStreamTimeout = null;
-let audioFadeBuffer = [];
-let lastAudioTime = 0;
-const FADE_DURATION_MS = 50; // 50ms fade to prevent crackling
-const SILENCE_THRESHOLD_MS = 100; // Minimum silence before considering stream ended
 
 export async function handleDeepgramMessage(
   deepgramMessage,
@@ -426,20 +422,12 @@ export async function handleDeepgramMessage(
         return;
       }
 
-      // Enhanced audio forwarding with smooth transitions to prevent crackling
+      // Enhanced audio forwarding with buffering to prevent crackling
       try {
-        const currentTime = Date.now();
-        
-        // Apply smooth audio transitions
-        let processedAudio = deepgramMessage;
-        
-        // Mark that we're actively streaming audio with smooth start
+        // Mark that we're actively streaming audio
         if (!isStreamingAudio) {
           isStreamingAudio = true;
-          console.log(`[${timestamp}] 🎵 Starting audio stream with fade-in`);
-          
-          // Apply fade-in effect to prevent crackling at start
-          processedAudio = applyFadeIn(deepgramMessage);
+          console.log(`[${timestamp}] 🎵 Starting audio stream`);
         }
 
         // Clear any existing timeout
@@ -447,21 +435,12 @@ export async function handleDeepgramMessage(
           clearTimeout(audioStreamTimeout);
         }
 
-        // Update last audio time and store for potential fade-out
-        lastAudioTime = currentTime;
-        
-        // Store recent audio for fade-out (keep only last few buffers)
-        audioFadeBuffer.push(processedAudio);
-        if (audioFadeBuffer.length > 5) {
-          audioFadeBuffer.shift(); // Remove oldest
-        }
-
-        // Forward processed audio for low latency
+        // Forward audio immediately for low latency
         const audioMessage = {
           event: "media",
           streamSid: streamSid,
           media: {
-            payload: processedAudio.toString("base64"),
+            payload: deepgramMessage.toString("base64"),
           },
         };
         
@@ -472,16 +451,13 @@ export async function handleDeepgramMessage(
           console.warn(`[${timestamp}] ⚠️ Twilio WebSocket not ready, state: ${twilioWs.readyState}`);
         }
 
-        // Set timeout to detect end of audio stream with fade-out
+        // Set timeout to detect end of audio stream
         audioStreamTimeout = setTimeout(() => {
-          if (isStreamingAudio && (Date.now() - lastAudioTime) > SILENCE_THRESHOLD_MS) {
-            console.log(`[${timestamp}] 🔇 Audio stream ending with fade-out`);
-            
-            // Send fade-out audio to prevent crackling at end
-            sendFadeOutAudio(twilioWs, streamSid);
+          if (isStreamingAudio) {
+            console.log(`[${timestamp}] 🔇 Audio stream ended (timeout)`);
             isStreamingAudio = false;
           }
-        }, SILENCE_THRESHOLD_MS + 50); // Slightly longer timeout for smooth ending
+        }, 500); // 500ms timeout to detect stream end
 
       } catch (error) {
         console.error(`[${timestamp}] ❌ Error forwarding audio to Twilio:`, error);
@@ -526,31 +502,13 @@ export async function handleDeepgramMessage(
         return;
       }
 
-      // This is likely binary audio data, forward to Twilio with smooth transitions
+      // This is likely binary audio data, forward to Twilio with validation
       try {
-        const currentTime = Date.now();
-        let processedAudio = deepgramMessage;
-        
-        // Apply fade-in if starting new stream
-        if (!isStreamingAudio) {
-          isStreamingAudio = true;
-          processedAudio = applyFadeIn(deepgramMessage);
-          console.log(`[${timestamp}] 🎵 Starting non-JSON audio stream with fade-in`);
-        }
-        
-        lastAudioTime = currentTime;
-         
-         // Store for potential fade-out
-         audioFadeBuffer.push(processedAudio);
-         if (audioFadeBuffer.length > 5) {
-           audioFadeBuffer.shift();
-         }
-         
-         const audioMessage = {
+        const audioMessage = {
           event: "media",
           streamSid: streamSid,
           media: {
-            payload: processedAudio.toString("base64"),
+            payload: deepgramMessage.toString("base64"),
           },
         };
         twilioWs.send(JSON.stringify(audioMessage));
@@ -889,16 +847,6 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
     state.setFunctionCallTimeout(null);
   }
 
-  // Send smooth transition before function call to prevent crackling
-  if (isStreamingAudio) {
-    console.log(`[${timestamp}] 🎵 Preparing smooth transition for function call`);
-    // Apply fade-out to current audio stream
-    if (context.twilioWs && context.streamSid) {
-      sendFadeOutAudio(context.twilioWs, context.streamSid);
-    }
-    isStreamingAudio = false;
-  }
-
   if (deepgramWs && businessConfig) {
     console.log(`[${timestamp}] 🔧 CALLING: handleFunctionCall...`);
     await handleFunctionCall(
@@ -924,105 +872,6 @@ async function handleFunctionCallMessage(deepgramData, timestamp, context) {
  * @param {string} timestamp - Current timestamp
  * @param {Object} context - Context object
  */
-/**
- * Apply fade-in effect to audio buffer to prevent crackling at start
- * @param {Buffer} audioBuffer - Raw audio buffer
- * @returns {Buffer} - Audio buffer with fade-in applied
- */
-function applyFadeIn(audioBuffer) {
-  if (!audioBuffer || audioBuffer.length === 0) return audioBuffer;
-  
-  // Create a copy to avoid modifying original
-  const fadedBuffer = Buffer.from(audioBuffer);
-  
-  // Calculate fade samples (assuming 8kHz mulaw, ~400 samples for 50ms)
-  const fadeSamples = Math.min(400, fadedBuffer.length);
-  
-  // Apply linear fade-in
-  for (let i = 0; i < fadeSamples; i++) {
-    const fadeMultiplier = i / fadeSamples;
-    // For mulaw, we need to decode, apply fade, then encode
-    // Simplified approach: reduce amplitude by scaling the mulaw value
-    const originalValue = fadedBuffer[i];
-    const scaledValue = Math.round(originalValue * fadeMultiplier);
-    fadedBuffer[i] = Math.max(0, Math.min(255, scaledValue));
-  }
-  
-  return fadedBuffer;
-}
-
-/**
- * Send fade-out audio to prevent crackling at end of stream
- * @param {WebSocket} twilioWs - Twilio WebSocket connection
- * @param {string} streamSid - Stream ID
- */
-function sendFadeOutAudio(twilioWs, streamSid) {
-  try {
-    // Generate short silence buffer with fade-out
-    const silenceLength = 320; // ~40ms of silence at 8kHz
-    const silenceBuffer = Buffer.alloc(silenceLength, 0xFF); // mulaw silence
-    
-    // Apply fade-out to the last received audio if available
-    if (audioFadeBuffer.length > 0) {
-      const lastAudio = audioFadeBuffer[audioFadeBuffer.length - 1];
-      const fadedAudio = applyFadeOut(lastAudio);
-      
-      const fadeMessage = {
-        event: "media",
-        streamSid: streamSid,
-        media: {
-          payload: fadedAudio.toString("base64"),
-        },
-      };
-      
-      if (twilioWs.readyState === twilioWs.OPEN) {
-        twilioWs.send(JSON.stringify(fadeMessage));
-      }
-    }
-    
-    // Send silence to ensure clean end
-    const silenceMessage = {
-      event: "media",
-      streamSid: streamSid,
-      media: {
-        payload: silenceBuffer.toString("base64"),
-      },
-    };
-    
-    if (twilioWs.readyState === twilioWs.OPEN) {
-      twilioWs.send(JSON.stringify(silenceMessage));
-    }
-    
-    // Clear fade buffer
-    audioFadeBuffer = [];
-  } catch (error) {
-    console.error("Error sending fade-out audio:", error);
-  }
-}
-
-/**
- * Apply fade-out effect to audio buffer
- * @param {Buffer} audioBuffer - Raw audio buffer
- * @returns {Buffer} - Audio buffer with fade-out applied
- */
-function applyFadeOut(audioBuffer) {
-  if (!audioBuffer || audioBuffer.length === 0) return audioBuffer;
-  
-  const fadedBuffer = Buffer.from(audioBuffer);
-  const fadeSamples = Math.min(400, fadedBuffer.length);
-  const startFade = fadedBuffer.length - fadeSamples;
-  
-  // Apply linear fade-out
-  for (let i = startFade; i < fadedBuffer.length; i++) {
-    const fadeMultiplier = (fadedBuffer.length - i) / fadeSamples;
-    const originalValue = fadedBuffer[i];
-    const scaledValue = Math.round(originalValue * fadeMultiplier);
-    fadedBuffer[i] = Math.max(0, Math.min(255, scaledValue));
-  }
-  
-  return fadedBuffer;
-}
-
 async function handleFunctionCallRequestMessage(
   deepgramData,
   timestamp,
@@ -1042,16 +891,6 @@ async function handleFunctionCallRequestMessage(
   if (state.functionCallTimeout) {
     clearTimeout(state.functionCallTimeout);
     state.setFunctionCallTimeout(null);
-  }
-
-  // Send smooth transition before function calls to prevent crackling
-  if (isStreamingAudio) {
-    console.log(`[${timestamp}] 🎵 Preparing smooth transition for function calls`);
-    // Apply fade-out to current audio stream
-    if (context.twilioWs && context.streamSid) {
-      sendFadeOutAudio(context.twilioWs, context.streamSid);
-    }
-    isStreamingAudio = false;
   }
 
   // Pause KeepAlive during function processing
