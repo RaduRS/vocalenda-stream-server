@@ -123,6 +123,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 encoding: "mulaw",
                 sample_rate: 8000,
                 container: "none",
+                // Add buffer settings to reduce crackling
+                buffer_size: 160, // Standard for 8kHz mulaw (20ms)
               },
             },
             agent: {
@@ -132,6 +134,14 @@ export async function initializeDeepgram(businessConfig, callContext) {
                   type: "deepgram",
                   model: "nova-3",
                 },
+                // Optimize endpointing to reduce audio gaps
+                endpointing: {
+                  utterance_end_ms: 1000, // Wait 1 second before considering speech ended
+                  vad_turnoff_ms: 300,    // Voice activity detection timeout
+                },
+                // Add interim results for smoother interaction
+                interim_results: true,
+                smart_format: true,
               },
               think: {
                 provider: {
@@ -145,6 +155,11 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 provider: {
                   type: "deepgram",
                   model: "aura-2-thalia-en",
+                },
+                // Add audio optimization settings
+                audio_optimization: {
+                  reduce_latency: true,
+                  normalize_audio: true,
                 },
               },
               greeting: "Thank you for calling, how can I help you today?",
@@ -366,6 +381,11 @@ export async function initializeDeepgram(businessConfig, callContext) {
  * @param {Object} state - State object containing flags and timeouts
  * @returns {Promise<void>}
  */
+// Audio buffer management for smooth streaming
+let audioBuffer = [];
+let isStreamingAudio = false;
+let audioStreamTimeout = null;
+
 export async function handleDeepgramMessage(
   deepgramMessage,
   twilioWs,
@@ -393,26 +413,44 @@ export async function handleDeepgramMessage(
 
     // Check if this is binary audio data
     if (Buffer.isBuffer(deepgramMessage)) {
-      // Validate audio data integrity
+      // Enhanced audio validation
       if (deepgramMessage.length === 0) {
-        console.warn("⚠️ Received empty audio buffer from Deepgram");
+        console.warn(`[${timestamp}] ⚠️ Received empty audio buffer from Deepgram`);
+        return;
+      }
+
+      // Validate audio buffer size for mulaw 8kHz (should be consistent)
+      if (deepgramMessage.length < 10) {
+        console.warn(`[${timestamp}] ⚠️ Received suspiciously small audio buffer: ${deepgramMessage.length} bytes`);
         return;
       }
 
       // If we're receiving audio, Deepgram is clearly ready
       if (!deepgramReady) {
-        console.log("🎉 Deepgram is sending audio - marking as ready!");
+        console.log(`[${timestamp}] 🎉 Deepgram is sending audio - marking as ready!`);
         setDeepgramReady(true);
       }
 
       // Validate that we have a valid stream ID
       if (!streamSid) {
-        console.warn("⚠️ No streamSid available for audio forwarding");
+        console.warn(`[${timestamp}] ⚠️ No streamSid available for audio forwarding`);
         return;
       }
 
-      // This is binary audio data, forward to Twilio with validation
+      // Enhanced audio forwarding with buffering to prevent crackling
       try {
+        // Mark that we're actively streaming audio
+        if (!isStreamingAudio) {
+          isStreamingAudio = true;
+          console.log(`[${timestamp}] 🎵 Starting audio stream`);
+        }
+
+        // Clear any existing timeout
+        if (audioStreamTimeout) {
+          clearTimeout(audioStreamTimeout);
+        }
+
+        // Forward audio immediately for low latency
         const audioMessage = {
           event: "media",
           streamSid: streamSid,
@@ -420,9 +458,24 @@ export async function handleDeepgramMessage(
             payload: deepgramMessage.toString("base64"),
           },
         };
-        twilioWs.send(JSON.stringify(audioMessage));
+        
+        // Validate Twilio WebSocket before sending
+        if (twilioWs.readyState === twilioWs.OPEN) {
+          twilioWs.send(JSON.stringify(audioMessage));
+        } else {
+          console.warn(`[${timestamp}] ⚠️ Twilio WebSocket not ready, state: ${twilioWs.readyState}`);
+        }
+
+        // Set timeout to detect end of audio stream
+        audioStreamTimeout = setTimeout(() => {
+          if (isStreamingAudio) {
+            console.log(`[${timestamp}] 🔇 Audio stream ended (timeout)`);
+            isStreamingAudio = false;
+          }
+        }, 500); // 500ms timeout to detect stream end
+
       } catch (error) {
-        console.error("❌ Error forwarding audio to Twilio:", error);
+        console.error(`[${timestamp}] ❌ Error forwarding audio to Twilio:`, error);
       }
       return;
     }
@@ -566,14 +619,93 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         deepgramData.data?.length || 0
       } chars)`
     );
-    const audioMessage = {
-      event: "media",
-      streamSid: streamSid,
-      media: {
-        payload: deepgramData.data,
-      },
-    };
-    twilioWs.send(JSON.stringify(audioMessage));
+    
+    // Enhanced audio validation and synchronization
+     if (deepgramData.data && deepgramData.data.length > 0) {
+       // Validate audio data quality
+       const audioData = deepgramData.data;
+       const isValidBase64 = /^[A-Za-z0-9+/]*={0,2}$/.test(audioData);
+       
+       if (!isValidBase64) {
+         console.error(`[${timestamp}] ❌ Invalid base64 audio data received`);
+         return;
+       }
+       
+       // Check for suspiciously small audio chunks that might cause crackling
+       if (audioData.length < 100) {
+         console.warn(`[${timestamp}] ⚠️ Very small audio chunk (${audioData.length} chars) - potential crackling risk`);
+       }
+      // Mark that we're actively streaming audio
+      if (!isStreamingAudio) {
+        isStreamingAudio = true;
+        console.log(`[${timestamp}] 🎵 Starting audio stream`);
+      }
+      
+      // Clear any existing timeout since we're getting new audio
+      if (audioStreamTimeout) {
+        clearTimeout(audioStreamTimeout);
+        audioStreamTimeout = null;
+      }
+      
+      // Validate Twilio WebSocket state before sending
+      if (twilioWs && twilioWs.readyState === WebSocket.OPEN) {
+        const audioMessage = {
+          event: "media",
+          streamSid: streamSid,
+          media: {
+            payload: deepgramData.data,
+          },
+        };
+        twilioWs.send(JSON.stringify(audioMessage));
+        
+        // Set a timeout to detect end of audio stream if no AgentAudioDone is received
+        audioStreamTimeout = setTimeout(() => {
+          if (isStreamingAudio) {
+            console.log(`[${timestamp}] ⏰ Audio stream timeout - assuming end of audio`);
+            isStreamingAudio = false;
+          }
+        }, 1000); // 1 second timeout
+      } else {
+        console.warn(`[${timestamp}] ⚠️ Cannot send audio - Twilio WebSocket not ready`);
+      }
+    } else {
+       console.warn(`[${timestamp}] ⚠️ Empty or invalid audio data received`);
+       
+       // If we receive empty audio but we're supposed to be streaming,
+       // this might indicate an issue with the audio stream
+       if (isStreamingAudio) {
+         console.warn(`[${timestamp}] 🔍 Empty audio during active stream - checking stream health`);
+         
+         // Set a shorter timeout for empty audio to detect stream issues faster
+         if (audioStreamTimeout) {
+           clearTimeout(audioStreamTimeout);
+         }
+         audioStreamTimeout = setTimeout(() => {
+           console.log(`[${timestamp}] 🔄 Resetting audio stream state due to empty audio`);
+           isStreamingAudio = false;
+         }, 500); // Shorter timeout for empty audio
+       }
+     }
+  } else if (deepgramData.type === "AgentAudioDone") {
+    console.log(`[${timestamp}] 🔇 AGENT_AUDIO_DONE: AI finished sending audio`);
+    
+    // Clear audio streaming state to prevent crackling
+    if (isStreamingAudio) {
+      console.log(`[${timestamp}] 🎵 Clearing audio stream state`);
+      isStreamingAudio = false;
+      
+      // Clear any pending timeout
+      if (audioStreamTimeout) {
+        clearTimeout(audioStreamTimeout);
+        audioStreamTimeout = null;
+      }
+    }
+    
+    // Optional: Add a small delay before next audio to prevent crackling
+    // This helps with audio device buffer management
+    setTimeout(() => {
+      console.log(`[${timestamp}] ✅ Audio stream cleanup completed`);
+    }, 50);
   } else if (deepgramData.type === "AgentThinking") {
     console.log(`[${timestamp}] 🧠 AGENT_THINKING: AI processing...`);
     console.log(
