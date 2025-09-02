@@ -131,11 +131,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 provider: {
                   type: "deepgram",
                   model: "nova-3",
-                  // Add interim results for smoother interaction
-                  interim_results: true,
-                  smart_format: true,
-                  // Optimize endpointing to reduce audio gaps (milliseconds of silence)
-                  endpointing: 300, // Wait 300ms of silence before considering speech ended
                 },
               },
               think: {
