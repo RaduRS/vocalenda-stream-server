@@ -123,8 +123,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 encoding: "mulaw",
                 sample_rate: 8000,
                 container: "none",
-                // Add buffer settings to reduce crackling
-                buffer_size: 160, // Standard for 8kHz mulaw (20ms)
               },
             },
             agent: {
@@ -133,15 +131,12 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 provider: {
                   type: "deepgram",
                   model: "nova-3",
+                  // Add interim results for smoother interaction
+                  interim_results: true,
+                  smart_format: true,
+                  // Optimize endpointing to reduce audio gaps (milliseconds of silence)
+                  endpointing: 300, // Wait 300ms of silence before considering speech ended
                 },
-                // Optimize endpointing to reduce audio gaps
-                endpointing: {
-                  utterance_end_ms: 1000, // Wait 1 second before considering speech ended
-                  vad_turnoff_ms: 300,    // Voice activity detection timeout
-                },
-                // Add interim results for smoother interaction
-                interim_results: true,
-                smart_format: true,
               },
               think: {
                 provider: {
@@ -155,11 +150,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
                 provider: {
                   type: "deepgram",
                   model: "aura-2-thalia-en",
-                },
-                // Add audio optimization settings
-                audio_optimization: {
-                  reduce_latency: true,
-                  normalize_audio: true,
                 },
               },
               greeting: "Thank you for calling, how can I help you today?",
