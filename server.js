@@ -3,7 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
-import { initializeDeepgram, handleDeepgramMessage } from "./deepgram.js";
+import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem } from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
 
 // Validate configuration on startup
@@ -131,6 +131,8 @@ wss.on("connection", async (ws, req) => {
             console.log(
               `Deepgram WebSocket closed. Code: ${code}, Reason: ${reason}`
             );
+            // Clean up audio system when Deepgram closes
+            cleanupAudioSystem();
             // Only close Twilio connection if it's an unexpected close
             if (code !== 1000 && code !== 1001) {
               console.error(
@@ -185,6 +187,7 @@ wss.on("connection", async (ws, req) => {
 
         case "stop":
           console.log("Media stream stopped");
+          cleanupAudioSystem();
           if (deepgramWs) {
             deepgramWs.close();
           }
@@ -197,6 +200,7 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("Twilio WebSocket connection closed");
+    cleanupAudioSystem();
     if (deepgramWs) {
       deepgramWs.close();
     }
