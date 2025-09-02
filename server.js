@@ -94,7 +94,14 @@ wss.on("connection", async (ws, req) => {
             return;
           }
 
-          // Use the centralized Deepgram message handler
+          // Initialize the persistent pacer ONCE after Deepgram is ready
+          console.log("✅ Deepgram connection finalized. Initializing persistent pacer.");
+          
+          // Import and initialize the persistent pacer
+          const { initializePersistentPacer } = await import('./deepgram.js');
+          initializePersistentPacer(ws, data.start?.streamSid);
+          
+          // Establish the SINGLE, authoritative message handler for the rest of the call
           deepgramWs.on("message", async (deepgramMessage) => {
             await handleDeepgramMessage(
               deepgramMessage,

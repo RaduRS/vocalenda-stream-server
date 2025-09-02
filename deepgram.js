@@ -31,52 +31,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
     deepgramWs.on("message", async (message) => {
       try {
         const timestamp = new Date().toISOString();
-
-        // Check if this is binary data (audio) vs JSON message
-        if (message instanceof Buffer && message.length > 0) {
-          // First check: if it's clearly not text-based, skip it
-          if (
-            message.length > 100 &&
-            !message.toString("utf8", 0, 10).includes("{")
-          ) {
-            return;
-          }
-
-          const messageStr = message.toString("utf8");
-
-          // Check if it looks like JSON by examining the content
-          if (
-            !messageStr.trim().startsWith("{") &&
-            !messageStr.trim().startsWith("[")
-          ) {
-            // This is binary audio data, not a JSON message
-            console.log(
-              `[${timestamp}] 🔊 INIT: Ignoring non-JSON data (${message.length} bytes)`
-            );
-            return;
-          }
-
-          // Additional check for binary patterns and invalid UTF-8
-          if (
-            messageStr.includes("\x00") ||
-            messageStr.includes("\xFF") ||
-            messageStr.includes("�") ||
-            /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)
-          ) {
-            // Contains binary characters, ignore it in initialization
-            console.log(
-              `[${timestamp}] 🔊 INIT: Ignoring binary data in initialization (${message.length} bytes)`
-            );
-            return;
-          }
-        }
-
         const data = JSON.parse(message.toString());
         console.log(`[${timestamp}] 📨 INIT: Deepgram message:`, data.type);
-        console.log(
-          `[${timestamp}] 📦 INIT: Full data:`,
-          JSON.stringify(data, null, 2)
-        );
 
         if (data.type === "Welcome") {
           console.log(
@@ -254,7 +210,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
             `[${timestamp}] ✅ SETTINGS_APPLIED: Agent configuration confirmed!`
           );
           console.log(
-            `[${timestamp}] 🎯 READY: Agent can now handle conversations and function calls`
+            `[${timestamp}] 🎯 READY: Agent ready for main message handler attachment`
           );
           console.log(
             `[${timestamp}] 🔧 APPLIED: Audio settings:`,
@@ -265,63 +221,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
             data.agent || "No agent config"
           );
 
-          // Resolve the promise with the connected WebSocket
+          // The handshake is complete. Resolve the promise and DO NOTHING ELSE.
           resolve(deepgramWs);
-        } else if (data.type === "FunctionCallRequest") {
-          console.log(
-            `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST in INIT! 🚨🚨`
-          );
-          console.log(
-            `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
-          );
-          console.log(
-            `[${timestamp}] 📋 Functions:`,
-            JSON.stringify(data.functions, null, 2)
-          );
-
-          // Pause KeepAlive during function processing
-          if (deepgramWs.pauseKeepAlive) {
-            deepgramWs.pauseKeepAlive();
-          }
-
-          // Process each function in the request
-          for (const func of data.functions) {
-            console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
-
-            // Create the function call data in the expected format
-            const functionCallData = {
-              function_name: func.name,
-              function_call_id: func.id,
-              parameters: JSON.parse(func.arguments),
-            };
-
-            console.log(
-              `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
-            );
-            await handleFunctionCall(
-              deepgramWs,
-              functionCallData,
-              businessConfig,
-              callContext.callSid
-            );
-            console.log(
-              `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
-            );
-          }
-
-          // Resume KeepAlive after function processing
-          if (deepgramWs.resumeKeepAlive) {
-            deepgramWs.resumeKeepAlive();
-          }
-        } else {
-          console.log(
-            `[${timestamp}] 📨 OTHER: Initialization message type:`,
-            data.type
-          );
-          console.log(
-            `[${timestamp}] 📦 OTHER: Full data:`,
-            JSON.stringify(data, null, 2)
-          );
         }
       } catch (error) {
         const timestamp = new Date().toISOString();
@@ -362,11 +263,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
 export function cleanupAudioSystem() {
   cleanupPersistentPacer();
   audioBuffer = Buffer.alloc(0);
-  isStreamingAudio = false;
-  if (audioStreamTimeout) {
-    clearTimeout(audioStreamTimeout);
-    audioStreamTimeout = null;
-  }
   streamSid = null;
   twilioWsRef = null;
 }
@@ -383,8 +279,6 @@ export function cleanupAudioSystem() {
  */
 // Persistent pacer system for continuous audio flow
 let audioBuffer = Buffer.alloc(0); // Buffer for incoming audio data
-let isStreamingAudio = false;
-let audioStreamTimeout = null;
 let pacer = null; // Persistent 20ms interval timer
 let streamSid = null; // Store streamSid for pacer access
 let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
@@ -395,8 +289,13 @@ const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xFF).toString('base64');
 
 /**
  * Initialize the persistent pacer that sends audio packets every 20ms
+ * @param {WebSocket} twilioWs - Twilio WebSocket connection
+ * @param {string} streamId - Twilio stream ID
  */
-function initializePersistentPacer() {
+export function initializePersistentPacer(twilioWs, streamId) {
+  // Store references for pacer access
+  twilioWsRef = twilioWs;
+  streamSid = streamId;
   if (pacer) {
     clearInterval(pacer);
   }
@@ -456,14 +355,9 @@ export async function handleDeepgramMessage(
   streamSidParam,
   state
 ) {
-  // Store references for pacer access
+  // Store references for pacer access (pacer is initialized once in server.js)
   streamSid = streamSidParam;
   twilioWsRef = twilioWs;
-  
-  // Initialize persistent pacer if not already running
-  if (!pacer && streamSid && twilioWs) {
-    initializePersistentPacer();
-  }
   
   const {
     expectingFunctionCall,
@@ -508,31 +402,10 @@ export async function handleDeepgramMessage(
         return;
       }
 
-      // Feed audio buffer instead of sending directly (persistent pacer handles sending)
+      // Simply add audio to buffer - the persistent pacer handles the rest
       try {
-        // Mark that we're actively streaming audio
-        if (!isStreamingAudio) {
-          isStreamingAudio = true;
-          console.log(`[${timestamp}] 🎵 Starting audio stream - feeding buffer`);
-        }
-
-        // Clear any existing timeout
-        if (audioStreamTimeout) {
-          clearTimeout(audioStreamTimeout);
-        }
-
-        // Add incoming audio to buffer instead of sending directly
         audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
         console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
-
-        // Set timeout to detect end of audio stream
-        audioStreamTimeout = setTimeout(() => {
-          if (isStreamingAudio) {
-            console.log(`[${timestamp}] 🔇 Audio stream ended (timeout)`);
-            isStreamingAudio = false;
-          }
-        }, 500); // 500ms timeout to detect stream end
-
       } catch (error) {
         console.error(`[${timestamp}] ❌ Error adding audio to buffer:`, error);
       }
@@ -688,63 +561,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
        if (audioData.length < 100) {
          console.warn(`[${timestamp}] ⚠️ Very small audio chunk (${audioData.length} chars) - potential crackling risk`);
        }
-      // Mark that we're actively streaming audio
-      if (!isStreamingAudio) {
-        isStreamingAudio = true;
-        console.log(`[${timestamp}] 🎵 Starting audio stream`);
-      }
-      
-      // Clear any existing timeout since we're getting new audio
-      if (audioStreamTimeout) {
-        clearTimeout(audioStreamTimeout);
-        audioStreamTimeout = null;
-      }
-      
-      // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
+      // Add TTS audio to buffer - the persistent pacer handles sending
       try {
         const audioData = Buffer.from(deepgramData.data, 'base64');
         audioBuffer = Buffer.concat([audioBuffer, audioData]);
         console.log(`[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${audioBuffer.length})`);
-        
-        // Set a timeout to detect end of audio stream if no AgentAudioDone is received
-        audioStreamTimeout = setTimeout(() => {
-          if (isStreamingAudio) {
-            console.log(`[${timestamp}] ⏰ Audio stream timeout - assuming end of audio`);
-            isStreamingAudio = false;
-          }
-        }, 1000); // 1 second timeout
       } catch (error) {
         console.error(`[${timestamp}] ❌ Error adding TTS audio to buffer:`, error);
       }
     } else {
        console.warn(`[${timestamp}] ⚠️ Empty or invalid audio data received`);
-       
-       // If we receive empty audio but we're supposed to be streaming,
-       // this might indicate an issue with the audio stream
-       if (isStreamingAudio) {
-         console.warn(`[${timestamp}] 🔍 Empty audio during active stream - checking stream health`);
-         
-         // Set a shorter timeout for empty audio to detect stream issues faster
-         if (audioStreamTimeout) {
-           clearTimeout(audioStreamTimeout);
-         }
-         audioStreamTimeout = setTimeout(() => {
-           console.log(`[${timestamp}] 🔄 Resetting audio stream state due to empty audio`);
-           isStreamingAudio = false;
-         }, 500); // Shorter timeout for empty audio
-       }
      }
   } else if (deepgramData.type === "AgentAudioDone") {
     console.log(`[${timestamp}] 🔇 AGENT_AUDIO_DONE: AI finished sending audio`);
-    
-    // While the pacer handles most of this, explicitly clearing the streaming state is good practice.
-    isStreamingAudio = false;
-    
-    // Clear any lingering timeout as a failsafe.
-    if (audioStreamTimeout) {
-      clearTimeout(audioStreamTimeout);
-      audioStreamTimeout = null;
-    }
     
     // The pacer will automatically switch to sending silence once the buffer is empty.
     // No need to send extra silence here; the pacer's default state handles it.
