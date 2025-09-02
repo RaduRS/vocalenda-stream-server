@@ -357,6 +357,21 @@ export async function initializeDeepgram(businessConfig, callContext) {
 }
 
 /**
+ * Export cleanup function for external use
+ */
+export function cleanupAudioSystem() {
+  cleanupPersistentPacer();
+  audioBuffer = Buffer.alloc(0);
+  isStreamingAudio = false;
+  if (audioStreamTimeout) {
+    clearTimeout(audioStreamTimeout);
+    audioStreamTimeout = null;
+  }
+  streamSid = null;
+  twilioWsRef = null;
+}
+
+/**
  * Handle Deepgram WebSocket messages
  * @param {Buffer|string} deepgramMessage - The message from Deepgram
  * @param {WebSocket} twilioWs - Twilio WebSocket connection
@@ -366,19 +381,90 @@ export async function initializeDeepgram(businessConfig, callContext) {
  * @param {Object} state - State object containing flags and timeouts
  * @returns {Promise<void>}
  */
-// Audio buffer management for smooth streaming
-let audioBuffer = [];
+// Persistent pacer system for continuous audio flow
+let audioBuffer = Buffer.alloc(0); // Buffer for incoming audio data
 let isStreamingAudio = false;
 let audioStreamTimeout = null;
+let pacer = null; // Persistent 20ms interval timer
+let streamSid = null; // Store streamSid for pacer access
+let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
+
+// Audio constants for μ-law format (8kHz, 20ms frames)
+const FRAME_SIZE = 160; // 20ms of 8kHz μ-law audio
+const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xFF).toString('base64');
+
+/**
+ * Initialize the persistent pacer that sends audio packets every 20ms
+ */
+function initializePersistentPacer() {
+  if (pacer) {
+    clearInterval(pacer);
+  }
+  
+  console.log('🎵 Initializing persistent pacer for continuous audio flow');
+  
+  pacer = setInterval(() => {
+    if (!twilioWsRef || twilioWsRef.readyState !== WebSocket.OPEN || !streamSid) {
+      return;
+    }
+    
+    let payload;
+    
+    if (audioBuffer.length >= FRAME_SIZE) {
+      // Send real audio if available
+      const frame = audioBuffer.slice(0, FRAME_SIZE);
+      audioBuffer = audioBuffer.slice(FRAME_SIZE);
+      payload = frame.toString('base64');
+    } else {
+      // Send silence to keep the stream alive
+      payload = SILENCE_PAYLOAD;
+    }
+    
+    // Always send a media message to maintain continuous flow
+    const audioMessage = {
+      event: 'media',
+      streamSid: streamSid,
+      media: { payload: payload },
+    };
+    
+    try {
+      twilioWsRef.send(JSON.stringify(audioMessage));
+    } catch (error) {
+      console.error('❌ Error sending audio packet in pacer:', error);
+    }
+  }, 20); // 20ms interval for continuous flow
+  
+  console.log('✅ Persistent pacer initialized - sending packets every 20ms');
+}
+
+/**
+ * Clean up the persistent pacer
+ */
+function cleanupPersistentPacer() {
+  if (pacer) {
+    clearInterval(pacer);
+    pacer = null;
+    console.log('🔇 Persistent pacer cleaned up');
+  }
+}
 
 export async function handleDeepgramMessage(
   deepgramMessage,
   twilioWs,
   deepgramWs,
   businessConfig,
-  streamSid,
+  streamSidParam,
   state
 ) {
+  // Store references for pacer access
+  streamSid = streamSidParam;
+  twilioWsRef = twilioWs;
+  
+  // Initialize persistent pacer if not already running
+  if (!pacer && streamSid && twilioWs) {
+    initializePersistentPacer();
+  }
+  
   const {
     expectingFunctionCall,
     functionCallTimeout,
@@ -422,12 +508,12 @@ export async function handleDeepgramMessage(
         return;
       }
 
-      // Enhanced audio forwarding with buffering to prevent crackling
+      // Feed audio buffer instead of sending directly (persistent pacer handles sending)
       try {
         // Mark that we're actively streaming audio
         if (!isStreamingAudio) {
           isStreamingAudio = true;
-          console.log(`[${timestamp}] 🎵 Starting audio stream`);
+          console.log(`[${timestamp}] 🎵 Starting audio stream - feeding buffer`);
         }
 
         // Clear any existing timeout
@@ -435,21 +521,9 @@ export async function handleDeepgramMessage(
           clearTimeout(audioStreamTimeout);
         }
 
-        // Forward audio immediately for low latency
-        const audioMessage = {
-          event: "media",
-          streamSid: streamSid,
-          media: {
-            payload: deepgramMessage.toString("base64"),
-          },
-        };
-        
-        // Validate Twilio WebSocket before sending
-        if (twilioWs.readyState === twilioWs.OPEN) {
-          twilioWs.send(JSON.stringify(audioMessage));
-        } else {
-          console.warn(`[${timestamp}] ⚠️ Twilio WebSocket not ready, state: ${twilioWs.readyState}`);
-        }
+        // Add incoming audio to buffer instead of sending directly
+        audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
+        console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
 
         // Set timeout to detect end of audio stream
         audioStreamTimeout = setTimeout(() => {
@@ -460,7 +534,7 @@ export async function handleDeepgramMessage(
         }, 500); // 500ms timeout to detect stream end
 
       } catch (error) {
-        console.error(`[${timestamp}] ❌ Error forwarding audio to Twilio:`, error);
+        console.error(`[${timestamp}] ❌ Error adding audio to buffer:`, error);
       }
       return;
     }
@@ -502,18 +576,12 @@ export async function handleDeepgramMessage(
         return;
       }
 
-      // This is likely binary audio data, forward to Twilio with validation
+      // This is likely binary audio data, add to buffer instead of sending directly
       try {
-        const audioMessage = {
-          event: "media",
-          streamSid: streamSid,
-          media: {
-            payload: deepgramMessage.toString("base64"),
-          },
-        };
-        twilioWs.send(JSON.stringify(audioMessage));
+        audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
+        console.log(`📥 Added non-JSON audio to buffer: ${deepgramMessage.length} bytes (total: ${audioBuffer.length})`);
       } catch (error) {
-        console.error("❌ Error forwarding non-JSON audio to Twilio:", error);
+        console.error("❌ Error adding non-JSON audio to buffer:", error);
       }
       return;
     }
@@ -632,16 +700,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         audioStreamTimeout = null;
       }
       
-      // Validate Twilio WebSocket state before sending
-      if (twilioWs && twilioWs.readyState === WebSocket.OPEN) {
-        const audioMessage = {
-          event: "media",
-          streamSid: streamSid,
-          media: {
-            payload: deepgramData.data,
-          },
-        };
-        twilioWs.send(JSON.stringify(audioMessage));
+      // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
+      try {
+        const audioData = Buffer.from(deepgramData.data, 'base64');
+        audioBuffer = Buffer.concat([audioBuffer, audioData]);
+        console.log(`[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${audioBuffer.length})`);
         
         // Set a timeout to detect end of audio stream if no AgentAudioDone is received
         audioStreamTimeout = setTimeout(() => {
@@ -650,8 +713,8 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             isStreamingAudio = false;
           }
         }, 1000); // 1 second timeout
-      } else {
-        console.warn(`[${timestamp}] ⚠️ Cannot send audio - Twilio WebSocket not ready`);
+      } catch (error) {
+        console.error(`[${timestamp}] ❌ Error adding TTS audio to buffer:`, error);
       }
     } else {
        console.warn(`[${timestamp}] ⚠️ Empty or invalid audio data received`);
@@ -674,23 +737,18 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "AgentAudioDone") {
     console.log(`[${timestamp}] 🔇 AGENT_AUDIO_DONE: AI finished sending audio`);
     
-    // Clear audio streaming state to prevent crackling
-    if (isStreamingAudio) {
-      console.log(`[${timestamp}] 🎵 Clearing audio stream state`);
-      isStreamingAudio = false;
-      
-      // Clear any pending timeout
-      if (audioStreamTimeout) {
-        clearTimeout(audioStreamTimeout);
-        audioStreamTimeout = null;
-      }
+    // While the pacer handles most of this, explicitly clearing the streaming state is good practice.
+    isStreamingAudio = false;
+    
+    // Clear any lingering timeout as a failsafe.
+    if (audioStreamTimeout) {
+      clearTimeout(audioStreamTimeout);
+      audioStreamTimeout = null;
     }
     
-    // Optional: Add a small delay before next audio to prevent crackling
-    // This helps with audio device buffer management
-    setTimeout(() => {
-      console.log(`[${timestamp}] ✅ Audio stream cleanup completed`);
-    }, 50);
+    // The pacer will automatically switch to sending silence once the buffer is empty.
+    // No need to send extra silence here; the pacer's default state handles it.
+    console.log(`[${timestamp}] ✅ Agent speech ended. Pacer will now send silence until next utterance.`);
   } else if (deepgramData.type === "AgentThinking") {
     console.log(`[${timestamp}] 🧠 AGENT_THINKING: AI processing...`);
     console.log(
