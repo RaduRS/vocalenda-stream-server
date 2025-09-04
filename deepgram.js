@@ -28,7 +28,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
     });
 
     // Wait for Welcome message before sending configuration (like official example)
-    deepgramWs.on("message", async (message) => {
+    const initMessageHandler = async (message) => {
       try {
         const timestamp = new Date().toISOString();
 
@@ -269,54 +269,17 @@ export async function initializeDeepgram(businessConfig, callContext) {
             data.agent || "No agent config"
           );
 
+          // Remove the initialization message handler to prevent duplicate processing
+          deepgramWs.removeListener("message", initMessageHandler);
+          
           // Resolve the promise with the connected WebSocket
           resolve(deepgramWs);
         } else if (data.type === "FunctionCallRequest") {
+          // Function calls during initialization should be handled by the main message handler
+          // to avoid duplicate processing. Just log and ignore here.
           console.log(
-            `[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST in INIT! 🚨🚨`
+            `[${timestamp}] 📨 FUNCTION_CALL_REQUEST during init - will be handled by main message handler`
           );
-          console.log(
-            `[${timestamp}] ✅ SUCCESS: AI requesting function calls!`
-          );
-          console.log(
-            `[${timestamp}] 📋 Functions:`,
-            JSON.stringify(data.functions, null, 2)
-          );
-
-          // Pause KeepAlive during function processing
-          if (deepgramWs.pauseKeepAlive) {
-            deepgramWs.pauseKeepAlive();
-          }
-
-          // Process each function in the request
-          for (const func of data.functions) {
-            console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
-
-            // Create the function call data in the expected format
-            const functionCallData = {
-              function_name: func.name,
-              function_call_id: func.id,
-              parameters: JSON.parse(func.arguments),
-            };
-
-            console.log(
-              `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
-            );
-            await handleFunctionCall(
-              deepgramWs,
-              functionCallData,
-              businessConfig,
-              callContext.callSid
-            );
-            console.log(
-              `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
-            );
-          }
-
-          // Resume KeepAlive after function processing
-          if (deepgramWs.resumeKeepAlive) {
-            deepgramWs.resumeKeepAlive();
-          }
         } else {
           // Only log non-initialization messages, don't process them
           // These will be handled by the main handleDeepgramMessage function
@@ -341,7 +304,10 @@ export async function initializeDeepgram(businessConfig, callContext) {
         );
         reject(error);
       }
-    });
+    };
+
+    // Register the initialization message handler
+    deepgramWs.on("message", initMessageHandler);
 
     deepgramWs.on("error", (error) => {
       console.error("Deepgram WebSocket error in initializeDeepgram:", error);
