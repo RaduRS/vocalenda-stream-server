@@ -314,14 +314,20 @@ export async function initializeDeepgram(businessConfig, callContext) {
             deepgramWs.resumeKeepAlive();
           }
         } else {
-          console.log(
-            `[${timestamp}] 📨 OTHER: Initialization message type:`,
-            data.type
-          );
-          console.log(
-            `[${timestamp}] 📦 OTHER: Full data:`,
-            JSON.stringify(data, null, 2)
-          );
+          // Only log non-initialization messages, don't process them
+          // These will be handled by the main handleDeepgramMessage function
+          if (data.type !== "ConversationText" && data.type !== "History" && data.type !== "UserStartedSpeaking" && data.type !== "TtsAudio") {
+            console.log(
+              `[${timestamp}] 📨 OTHER: Initialization message type:`,
+              data.type
+            );
+            console.log(
+              `[${timestamp}] 📦 OTHER: Full data:`,
+              JSON.stringify(data, null, 2)
+            );
+          }
+          // Ignore ConversationText, History, UserStartedSpeaking, and TtsAudio during initialization
+          // These will be processed by the main message handler after initialization completes
         }
       } catch (error) {
         const timestamp = new Date().toISOString();
@@ -484,8 +490,28 @@ export async function handleDeepgramMessage(
       console.log("🔍 NON-BUFFER MESSAGE:", deepgramMessage.toString());
     }
 
-    // Check if this is binary audio data
+    // First, try to determine if this is JSON or binary audio data
+    // All messages from Deepgram come as Buffers, so we need to check the content
+    let isJsonMessage = false;
+    let messageStr = '';
+    
     if (Buffer.isBuffer(deepgramMessage)) {
+      try {
+        messageStr = deepgramMessage.toString('utf8');
+        // Check if it looks like JSON
+        if (messageStr.trim().startsWith('{') || messageStr.trim().startsWith('[')) {
+          // Try to parse as JSON to confirm
+          JSON.parse(messageStr);
+          isJsonMessage = true;
+        }
+      } catch (error) {
+        // Not valid JSON, treat as binary audio data
+        isJsonMessage = false;
+      }
+    }
+    
+    // Handle binary audio data
+    if (Buffer.isBuffer(deepgramMessage) && !isJsonMessage) {
       // Enhanced audio validation
       if (deepgramMessage.length === 0) {
         console.warn(`[${timestamp}] ⚠️ Received empty audio buffer from Deepgram`);
@@ -561,54 +587,16 @@ export async function handleDeepgramMessage(
       return;
     }
 
-    // Log all non-binary messages for debugging
-    console.log(
-      "📨 Received Deepgram message:",
-      deepgramMessage.toString().substring(0, 200) + "..."
-    );
-
-    // Try to parse as JSON for text messages
-    const messageStr = deepgramMessage.toString();
-    console.log("Message string:", messageStr);
-
-    // Additional check: if it doesn't look like JSON, treat as binary
-    if (
-      !messageStr.trim().startsWith("{") &&
-      !messageStr.trim().startsWith("[")
-    ) {
+    // Handle JSON messages
+    if (isJsonMessage) {
       console.log(
-        `Processing non-JSON data as binary audio (${deepgramMessage.length} bytes)`
+        "📨 Received Deepgram JSON message:",
+        messageStr.substring(0, 200) + "..."
       );
+      console.log("Message string:", messageStr);
 
-      // Validate audio data integrity
-      if (deepgramMessage.length === 0) {
-        console.warn("⚠️ Received empty non-JSON audio buffer from Deepgram");
-        return;
-      }
-
-      // If we're receiving audio, Deepgram is clearly ready
-      if (!deepgramReady) {
-        console.log("🎉 Deepgram is sending audio - marking as ready!");
-        setDeepgramReady(true);
-      }
-
-      // Validate that we have a valid stream ID
-      if (!streamSid) {
-        console.warn("⚠️ No streamSid available for non-JSON audio forwarding");
-        return;
-      }
-
-      // This is likely binary audio data, add to buffer instead of sending directly
       try {
-        audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
-        console.log(`📥 Added non-JSON audio to buffer: ${deepgramMessage.length} bytes (total: ${audioBuffer.length})`);
-      } catch (error) {
-        console.error("❌ Error adding non-JSON audio to buffer:", error);
-      }
-      return;
-    }
-
-    const deepgramData = JSON.parse(messageStr);
+        const deepgramData = JSON.parse(messageStr);
 
     // This is a JSON message - log it fully with timestamp
     console.log(`[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`, messageStr);
@@ -635,9 +623,17 @@ export async function handleDeepgramMessage(
         setDeepgramReady,
       },
     };
-    await handleDeepgramMessageType(deepgramData, timestamp, context);
+        await handleDeepgramMessageType(deepgramData, timestamp, context);
+      } catch (error) {
+        console.error("❌ Error parsing Deepgram JSON message:", error);
+        console.error("Raw message:", messageStr);
+      }
+    } else {
+      // This should not happen since we already handled binary data above
+      console.warn("⚠️ Received non-buffer, non-JSON message from Deepgram:", deepgramMessage);
+    }
   } catch (error) {
-    console.error("❌ Error parsing Deepgram message:", error);
+    console.error("❌ Error processing Deepgram message:", error);
     console.error("Raw message:", deepgramMessage.toString());
   }
 }
