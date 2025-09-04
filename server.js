@@ -3,7 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
-import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem } from "./deepgram.js";
+import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem, pauseKeepAliveForInactivity, resumeKeepAliveForActivity } from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
 
 // Validate configuration on startup
@@ -88,6 +88,9 @@ wss.on("connection", async (ws, req) => {
             });
             console.log("✅ Deepgram connection initialized successfully");
             console.log("Final readyState:", deepgramWs.readyState);
+            
+            // Resume keepAlive messages when Twilio connection starts
+            resumeKeepAliveForActivity(deepgramWs);
           } catch (error) {
             console.error("❌ Failed to initialize Deepgram:", error);
             ws.close();
@@ -203,6 +206,9 @@ wss.on("connection", async (ws, req) => {
     // Clean up the audio system but don't close the Deepgram connection
     // This allows the connection to persist between Twilio connections
     cleanupAudioSystem();
+    
+    // Pause keepAlive messages when Twilio connection closes
+            pauseKeepAliveForInactivity(deepgramWs);
     
     // We intentionally don't close deepgramWs here to maintain a persistent connection
     // Only clear the call session if needed
