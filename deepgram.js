@@ -389,8 +389,9 @@ let pacer = null; // Persistent 20ms interval timer
 let streamSid = null; // Store streamSid for pacer access
 let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
 
-// Audio constants for μ-law format (8kHz, 20ms frames)
-const FRAME_SIZE = 160; // 20ms of 8kHz μ-law audio
+// Audio constants for μ-law format (8kHz)
+// Deepgram Voice Agent sends 960-byte chunks (120ms of 8kHz μ-law audio)
+const FRAME_SIZE = 960; // Match Deepgram's chunk size
 const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xFF).toString('base64');
 
 /**
@@ -401,7 +402,7 @@ function initializePersistentPacer() {
     clearInterval(pacer);
   }
   
-  console.log('🎵 Initializing persistent pacer for continuous audio flow');
+  console.log('🎵 Initializing persistent pacer for continuous audio flow (120ms intervals)');
   
   pacer = setInterval(() => {
     if (!twilioWsRef || twilioWsRef.readyState !== WebSocket.OPEN || !streamSid) {
@@ -432,9 +433,9 @@ function initializePersistentPacer() {
     } catch (error) {
       console.error('❌ Error sending audio packet in pacer:', error);
     }
-  }, 20); // 20ms interval for continuous flow
+  }, 120); // 120ms interval to match Deepgram's chunk size
   
-  console.log('✅ Persistent pacer initialized - sending packets every 20ms');
+  console.log('✅ Persistent pacer initialized - sending packets every 120ms');
 }
 
 /**
