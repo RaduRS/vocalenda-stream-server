@@ -187,10 +187,10 @@ wss.on("connection", async (ws, req) => {
 
         case "stop":
           console.log("Media stream stopped");
+          // Don't close the Deepgram connection, just clean up the audio system
+          // This allows the connection to persist between utterances
           cleanupAudioSystem();
-          if (deepgramWs) {
-            deepgramWs.close();
-          }
+          // We intentionally don't close deepgramWs here to maintain the connection
           break;
       }
     } catch (error) {
@@ -200,11 +200,12 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("Twilio WebSocket connection closed");
+    // Clean up the audio system but don't close the Deepgram connection
+    // This allows the connection to persist between Twilio connections
     cleanupAudioSystem();
-    if (deepgramWs) {
-      deepgramWs.close();
-    }
-    // Clear call session when connection closes
+    
+    // We intentionally don't close deepgramWs here to maintain a persistent connection
+    // Only clear the call session if needed
     if (callSid) {
       clearCallSession(callSid);
     }

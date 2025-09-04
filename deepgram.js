@@ -360,15 +360,16 @@ export async function initializeDeepgram(businessConfig, callContext) {
  * Export cleanup function for external use
  */
 export function cleanupAudioSystem() {
-  cleanupPersistentPacer();
+  // Don't cleanup the persistent pacer to maintain continuous audio flow
+  // Just reset the audio buffer and streaming state
   audioBuffer = Buffer.alloc(0);
   isStreamingAudio = false;
   if (audioStreamTimeout) {
     clearTimeout(audioStreamTimeout);
     audioStreamTimeout = null;
   }
-  streamSid = null;
-  twilioWsRef = null;
+  // Keep streamSid and twilioWsRef to maintain the connection
+  // This allows the pacer to continue sending silence between utterances
 }
 
 /**
