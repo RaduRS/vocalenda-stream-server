@@ -383,6 +383,34 @@ export function cleanupAudioSystem() {
 }
 
 /**
+ * Close Deepgram connection and cleanup all resources
+ * @param {WebSocket} deepgramWs - Deepgram WebSocket connection to close
+ */
+export function closeDeepgramConnection(deepgramWs) {
+  console.log("🔌 Closing Deepgram connection and cleaning up resources");
+  
+  // Clean up audio system
+  cleanupAudioSystem();
+  
+  // Clean up persistent pacer
+  cleanupPersistentPacer();
+  
+  // Clear KeepAlive interval if it exists
+  if (deepgramWs && deepgramWs.keepAliveInterval) {
+    clearInterval(deepgramWs.keepAliveInterval);
+    deepgramWs.keepAliveInterval = null;
+  }
+  
+  // Close the WebSocket connection
+  if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+    deepgramWs.close(1000, "Call ended");
+    console.log("✅ Deepgram connection closed successfully");
+  } else {
+    console.log("ℹ️ Deepgram connection already closed or not open");
+  }
+}
+
+/**
  * Handle Deepgram WebSocket messages
  * @param {Buffer|string} deepgramMessage - The message from Deepgram
  * @param {WebSocket} twilioWs - Twilio WebSocket connection

@@ -3,7 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
-import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem } from "./deepgram.js";
+import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem, closeDeepgramConnection } from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
 
 // Validate configuration on startup
@@ -190,10 +190,10 @@ wss.on("connection", async (ws, req) => {
 
         case "stop":
           console.log("Media stream stopped");
-          // Don't close the Deepgram connection, just clean up the audio system
-          // This allows the connection to persist between utterances
-          cleanupAudioSystem();
-          // We intentionally don't close deepgramWs here to maintain the connection
+          // Close the Deepgram connection when media stream stops to prevent timeouts
+          if (deepgramWs) {
+            closeDeepgramConnection(deepgramWs);
+          }
           break;
       }
     } catch (error) {
@@ -203,17 +203,13 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("Twilio WebSocket connection closed");
-    // Clean up the audio system but don't close the Deepgram connection
-    // This allows the connection to persist between Twilio connections
-    cleanupAudioSystem();
     
-    // Disable KeepAlive messages when Twilio connection closes
-    if (deepgramWs && deepgramWs.setTwilioConnectionActive) {
-      deepgramWs.setTwilioConnectionActive(false);
+    // Close the Deepgram connection to prevent CLIENT_MESSAGE_TIMEOUT errors
+    if (deepgramWs) {
+      closeDeepgramConnection(deepgramWs);
     }
     
-    // We intentionally don't close deepgramWs here to maintain a persistent connection
-    // Only clear the call session if needed
+    // Clear the call session if needed
     if (callSid) {
       clearCallSession(callSid);
     }
