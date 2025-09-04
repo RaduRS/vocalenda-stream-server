@@ -208,14 +208,16 @@ export async function initializeDeepgram(businessConfig, callContext) {
           }
 
           // Set up keep-alive messages to maintain connection
-          // Track if we're processing function calls to avoid conflicts
+          // Track different pause states
           let processingFunctionCall = false;
+          let callInactive = true; // Start as inactive until Twilio connects
 
           const keepAliveInterval = setInterval(() => {
             if (
               deepgramWs &&
               deepgramWs.readyState === WebSocket.OPEN &&
-              !processingFunctionCall
+              !processingFunctionCall &&
+              !callInactive
             ) {
               deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
               console.log(
@@ -224,6 +226,10 @@ export async function initializeDeepgram(businessConfig, callContext) {
             } else if (processingFunctionCall) {
               console.log(
                 `[${new Date().toISOString()}] ⏸️ KEEPALIVE: Skipped - processing function call`
+              );
+            } else if (callInactive) {
+              console.log(
+                `[${new Date().toISOString()}] ⏸️ KEEPALIVE: Skipped - no active call`
               );
             } else {
               clearInterval(keepAliveInterval);
@@ -242,6 +248,21 @@ export async function initializeDeepgram(businessConfig, callContext) {
             processingFunctionCall = false;
             console.log(
               `[${new Date().toISOString()}] ▶️ KEEPALIVE: Resumed after function processing`
+            );
+          };
+
+          // Add functions to control KeepAlive based on call activity
+          deepgramWs.pauseForInactivity = () => {
+            callInactive = true;
+            console.log(
+              `[${new Date().toISOString()}] ⏸️ KEEPALIVE: Paused - no active call`
+            );
+          };
+
+          deepgramWs.resumeForActivity = () => {
+            callInactive = false;
+            console.log(
+              `[${new Date().toISOString()}] ▶️ KEEPALIVE: Resumed - call active`
             );
           };
 
@@ -376,6 +397,20 @@ export function cleanupAudioSystem() {
   }
   // Keep streamSid and twilioWsRef to maintain the connection
   // This allows the pacer to continue sending silence between utterances
+}
+
+// Add function to pause keepAlive when no active call
+export function pauseKeepAliveForInactivity(deepgramWs) {
+  if (deepgramWs && deepgramWs.pauseForInactivity) {
+    deepgramWs.pauseForInactivity();
+  }
+}
+
+// Add function to resume keepAlive when call starts
+export function resumeKeepAliveForActivity(deepgramWs) {
+  if (deepgramWs && deepgramWs.resumeForActivity) {
+    deepgramWs.resumeForActivity();
+  }
 }
 
 /**
