@@ -523,8 +523,28 @@ export async function handleDeepgramMessage(
         }
 
         // Add incoming audio to buffer instead of sending directly
-        audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
-        console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
+        // Apply fade-in to first chunk of audio to prevent crackling at the beginning
+        if (!isStreamingAudio) {
+          // This is the first chunk of a new audio stream - apply fade-in
+          const fadeInBuffer = Buffer.from(deepgramMessage);
+          // Apply fade-in over first 240 samples (30ms) of first chunk
+          const fadeLength = Math.min(240, fadeInBuffer.length);
+          for (let i = 0; i < fadeLength; i++) {
+            // Gradually increase volume from 0 to full
+            const fadeRatio = i / fadeLength;
+            // μ-law is non-linear, so we need to adjust the value carefully
+            // Start closer to silence (0xFF) and gradually move to the actual value
+            const originalValue = fadeInBuffer[i];
+            const silenceValue = 0xFF;
+            fadeInBuffer[i] = Math.round(silenceValue - (fadeRatio * (silenceValue - originalValue)));
+          }
+          audioBuffer = Buffer.concat([audioBuffer, fadeInBuffer]);
+          console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioBuffer.length})`);
+        } else {
+          // Normal audio chunk - add directly
+          audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
+          console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
+        }
 
         // Set timeout to detect end of audio stream
         audioStreamTimeout = setTimeout(() => {
