@@ -147,7 +147,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
                   model: "aura-2-thalia-en",
                 },
               },
-              greeting: "Thank you for calling, how can I help you today?",
+              greeting: businessConfig.config?.greeting_message || "Thank you for calling, how can I help you today?",
             },
           };
 
@@ -564,11 +564,11 @@ export async function handleDeepgramMessage(
             fadeInBuffer[i] = Math.round(silenceValue - (fadeRatio * (silenceValue - originalValue)));
           }
           audioBuffer = Buffer.concat([audioBuffer, fadeInBuffer]);
-          console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioBuffer.length})`);
+          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioBuffer.length})`);
         } else {
           // Normal audio chunk - add directly
           audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
-          console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
+          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
         }
 
         // Set timeout to detect end of audio stream
