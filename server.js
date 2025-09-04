@@ -88,6 +88,9 @@ wss.on("connection", async (ws, req) => {
             });
             console.log("✅ Deepgram connection initialized successfully");
             console.log("Final readyState:", deepgramWs.readyState);
+            
+            // Enable KeepAlive messages now that Twilio connection is active
+            deepgramWs.setTwilioConnectionActive(true);
           } catch (error) {
             console.error("❌ Failed to initialize Deepgram:", error);
             ws.close();
@@ -203,6 +206,11 @@ wss.on("connection", async (ws, req) => {
     // Clean up the audio system but don't close the Deepgram connection
     // This allows the connection to persist between Twilio connections
     cleanupAudioSystem();
+    
+    // Disable KeepAlive messages when Twilio connection closes
+    if (deepgramWs && deepgramWs.setTwilioConnectionActive) {
+      deepgramWs.setTwilioConnectionActive(false);
+    }
     
     // We intentionally don't close deepgramWs here to maintain a persistent connection
     // Only clear the call session if needed

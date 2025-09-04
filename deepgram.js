@@ -208,27 +208,23 @@ export async function initializeDeepgram(businessConfig, callContext) {
           }
 
           // Set up keep-alive messages to maintain connection
-          // Track if we're processing function calls to avoid conflicts
+          // Deepgram requires KeepAlive messages every 3-5 seconds to prevent NET-0001 timeouts
           let processingFunctionCall = false;
+          let hasActiveTwilioConnection = false;
 
           const keepAliveInterval = setInterval(() => {
             if (
               deepgramWs &&
               deepgramWs.readyState === WebSocket.OPEN &&
-              !processingFunctionCall
+              !processingFunctionCall &&
+              hasActiveTwilioConnection
             ) {
               deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
               console.log(
                 `[${new Date().toISOString()}] 💓 KEEPALIVE: Sent to Deepgram`
               );
-            } else if (processingFunctionCall) {
-              console.log(
-                `[${new Date().toISOString()}] ⏸️ KEEPALIVE: Skipped - processing function call`
-              );
-            } else {
-              clearInterval(keepAliveInterval);
             }
-          }, 5000);
+          }, 4000); // Send every 4 seconds as recommended by Deepgram (3-5 second range)
 
           // Add function to control KeepAlive during function processing
           deepgramWs.pauseKeepAlive = () => {
@@ -242,6 +238,14 @@ export async function initializeDeepgram(businessConfig, callContext) {
             processingFunctionCall = false;
             console.log(
               `[${new Date().toISOString()}] ▶️ KEEPALIVE: Resumed after function processing`
+            );
+          };
+
+          // Add functions to control KeepAlive based on Twilio connection status
+          deepgramWs.setTwilioConnectionActive = (active) => {
+            hasActiveTwilioConnection = active;
+            console.log(
+              `[${new Date().toISOString()}] 🔗 TWILIO_CONNECTION: ${active ? 'Active' : 'Inactive'} - KeepAlive ${active ? 'enabled' : 'disabled'}`
             );
           };
 
