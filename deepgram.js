@@ -1,6 +1,4 @@
 import WebSocket from "ws";
-import fs from "fs";
-import path from "path";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { validateConfig } from "./config.js";
 import { handleFunctionCall } from "./functionHandlers.js";
@@ -393,64 +391,7 @@ let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
 
 // Audio constants for μ-law format (8kHz, 20ms frames)
 const FRAME_SIZE = 160; // 20ms of 8kHz μ-law audio
-
-// Load comfort noise from white_noise.wav file
-let comfortNoiseBuffer = null;
-let comfortNoiseIndex = 0;
-
-// Initialize comfort noise buffer
-function initializeComfortNoise() {
-  try {
-    const whiteNoisePath = path.join(process.cwd(), 'white_noise.wav');
-    const whiteNoiseFile = fs.readFileSync(whiteNoisePath);
-    
-    // Skip WAV header (44 bytes) to get raw μ-law audio data
-    comfortNoiseBuffer = whiteNoiseFile.slice(44);
-    console.log(`🔇 Comfort noise loaded: ${comfortNoiseBuffer.length} bytes of μ-law audio`);
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Failed to load comfort noise file:', error);
-    // Fallback to silence if comfort noise file is not available
-    comfortNoiseBuffer = Buffer.alloc(FRAME_SIZE, 0xFF);
-    console.log('🔇 Using fallback silence instead of comfort noise');
-    return false;
-  }
-}
-
-// Get next comfort noise frame
-function getComfortNoiseFrame() {
-  if (!comfortNoiseBuffer) {
-    initializeComfortNoise();
-  }
-  
-  if (comfortNoiseBuffer.length < FRAME_SIZE) {
-    // If comfort noise is too short, repeat it
-    const frame = Buffer.alloc(FRAME_SIZE);
-    let offset = 0;
-    while (offset < FRAME_SIZE) {
-      const remaining = FRAME_SIZE - offset;
-      const toCopy = Math.min(remaining, comfortNoiseBuffer.length);
-      comfortNoiseBuffer.copy(frame, offset, 0, toCopy);
-      offset += toCopy;
-    }
-    return frame.toString('base64');
-  }
-  
-  // Get next frame from comfort noise buffer
-  const frame = comfortNoiseBuffer.slice(comfortNoiseIndex, comfortNoiseIndex + FRAME_SIZE);
-  comfortNoiseIndex += FRAME_SIZE;
-  
-  // Loop back to beginning if we've reached the end
-  if (comfortNoiseIndex >= comfortNoiseBuffer.length - FRAME_SIZE) {
-    comfortNoiseIndex = 0;
-  }
-  
-  return frame.toString('base64');
-}
-
-// Initialize comfort noise on module load
-initializeComfortNoise();
+const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xFF).toString('base64');
 
 /**
  * Initialize the persistent pacer that sends audio packets every 20ms
@@ -475,8 +416,8 @@ function initializePersistentPacer() {
       audioBuffer = audioBuffer.slice(FRAME_SIZE);
       payload = frame.toString('base64');
     } else {
-      // Send comfort noise to keep the stream alive and prevent crackling
-      payload = getComfortNoiseFrame();
+      // Send silence to keep the stream alive
+      payload = SILENCE_PAYLOAD;
     }
     
     // Always send a media message to maintain continuous flow
@@ -759,21 +700,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         audioStreamTimeout = null;
       }
       
-      // Add TTS audio to buffer with padding to prevent crackling
+      // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
       try {
         const audioData = Buffer.from(deepgramData.data, 'base64');
-        
-        // Add comfort noise padding at the beginning of the first audio chunk
-        if (!isStreamingAudio) {
-          // Add 200ms of comfort noise padding (10 frames of 20ms each)
-          const paddingFrames = 10;
-          for (let i = 0; i < paddingFrames; i++) {
-            const comfortFrame = Buffer.from(getComfortNoiseFrame(), 'base64');
-            audioBuffer = Buffer.concat([audioBuffer, comfortFrame]);
-          }
-          console.log(`[${timestamp}] 🔇 Added ${paddingFrames * 20}ms comfort noise padding before speech`);
-        }
-        
         audioBuffer = Buffer.concat([audioBuffer, audioData]);
         console.log(`[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${audioBuffer.length})`);
         
@@ -808,14 +737,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "AgentAudioDone") {
     console.log(`[${timestamp}] 🔇 AGENT_AUDIO_DONE: AI finished sending audio`);
     
-    // Add comfort noise padding at the end of speech to prevent crackling
-    const paddingFrames = 10; // 200ms of padding
-    for (let i = 0; i < paddingFrames; i++) {
-      const comfortFrame = Buffer.from(getComfortNoiseFrame(), 'base64');
-      audioBuffer = Buffer.concat([audioBuffer, comfortFrame]);
-    }
-    console.log(`[${timestamp}] 🔇 Added ${paddingFrames * 20}ms comfort noise padding after speech`);
-    
     // While the pacer handles most of this, explicitly clearing the streaming state is good practice.
     isStreamingAudio = false;
     
@@ -825,8 +746,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       audioStreamTimeout = null;
     }
     
-    // The pacer will continue sending comfort noise once the buffer is empty.
-    console.log(`[${timestamp}] ✅ Agent speech ended with padding. Pacer will continue with comfort noise.`);
+    // The pacer will automatically switch to sending silence once the buffer is empty.
+    // No need to send extra silence here; the pacer's default state handles it.
+    console.log(`[${timestamp}] ✅ Agent speech ended. Pacer will now send silence until next utterance.`);
   } else if (deepgramData.type === "AgentThinking") {
     console.log(`[${timestamp}] 🧠 AGENT_THINKING: AI processing...`);
     console.log(
@@ -838,9 +760,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     );
     console.log(
       `[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`
-    );
-    console.log(
-      `[${timestamp}] 🔇 COMFORT_NOISE: Pacer is sending comfort noise during AI thinking to prevent crackling`
     );
   } else if (deepgramData.type === "TtsStart") {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
