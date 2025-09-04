@@ -6,61 +6,6 @@ import { handleFunctionCall } from "./functionHandlers.js";
 // Get configuration
 const config = validateConfig();
 
-// TTS Model testing configuration
-const AVAILABLE_TTS_MODELS = [
-  "aura-2-thalia-en",    // Default - Natural, conversational
-  "aura-2-luna-en",     // Warm, friendly
-  "aura-2-stella-en",   // Professional, clear
-  "aura-2-athena-en",   // Authoritative, confident
-  "aura-2-hera-en",     // Calm, soothing
-  "aura-2-orion-en",    // Deep, resonant
-  "aura-2-arcas-en",    // Youthful, energetic
-  "aura-2-perseus-en",  // Mature, sophisticated
-  "aura-2-angus-en",    // Casual, approachable
-];
-
-// Current model selection (can be changed via environment variable or for testing)
-let currentTTSModel = process.env.DEEPGRAM_TTS_MODEL || "aura-2-thalia-en";
-
-/**
- * Get the current TTS model for Deepgram
- * @returns {string} - The TTS model name
- */
-function getTTSModel() {
-  if (!AVAILABLE_TTS_MODELS.includes(currentTTSModel)) {
-    console.warn(`⚠️ Invalid TTS model '${currentTTSModel}', falling back to default`);
-    currentTTSModel = "aura-2-thalia-en";
-  }
-  console.log(`🎤 Using TTS model: ${currentTTSModel}`);
-  return currentTTSModel;
-}
-
-/**
- * Set TTS model for testing purposes
- * @param {string} modelName - The model name to use
- * @returns {boolean} - Success status
- */
-function setTTSModel(modelName) {
-  if (!AVAILABLE_TTS_MODELS.includes(modelName)) {
-    console.error(`❌ Invalid TTS model: ${modelName}`);
-    console.log(`Available models: ${AVAILABLE_TTS_MODELS.join(", ")}`);
-    return false;
-  }
-  
-  const previousModel = currentTTSModel;
-  currentTTSModel = modelName;
-  console.log(`🔄 TTS model changed from '${previousModel}' to '${currentTTSModel}'`);
-  return true;
-}
-
-/**
- * Get available TTS models for testing
- * @returns {Array<string>} - Array of available model names
- */
-function getAvailableTTSModels() {
-  return [...AVAILABLE_TTS_MODELS];
-}
-
 /**
  * Initialize Deepgram Voice Agent connection
  * @param {Object} businessConfig - Business configuration object
@@ -199,7 +144,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
               speak: {
                 provider: {
                   type: "deepgram",
-                  model: getTTSModel(),
+                  model: "aura-2-thalia-en",
                 },
               },
               greeting: "Thank you for calling, how can I help you today?",
@@ -424,19 +369,6 @@ export function cleanupAudioSystem() {
   }
   streamSid = null;
   twilioWsRef = null;
-  
-  // Reset audio diagnostics
-  audioStats = {
-    totalChunks: 0,
-    totalBytes: 0,
-    skippedChunks: 0,
-    corruptedChunks: 0,
-    alignmentIssues: 0,
-    lastChunkTime: null,
-    averageChunkSize: 0,
-    minChunkSize: Infinity,
-    maxChunkSize: 0
-  };
 }
 
 /**
@@ -457,80 +389,9 @@ let pacer = null; // Persistent 20ms interval timer
 let streamSid = null; // Store streamSid for pacer access
 let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
 
-// Audio diagnostics
-let audioStats = {
-  totalChunks: 0,
-  totalBytes: 0,
-  skippedChunks: 0,
-  corruptedChunks: 0,
-  alignmentIssues: 0,
-  lastChunkTime: null,
-  averageChunkSize: 0,
-  minChunkSize: Infinity,
-  maxChunkSize: 0
-};
-
 // Audio constants for μ-law format (8kHz, 20ms frames)
 const FRAME_SIZE = 160; // 20ms of 8kHz μ-law audio
-const FADE_FRAMES = 8; // Number of frames for fade-in/fade-out (160ms)
-
-/**
- * Generate proper μ-law silence according to ITU-T G.711 standard
- * @returns {Buffer} - Properly encoded μ-law silence buffer
- */
-function generateMuLawSilence() {
-  // According to ITU-T G.711, μ-law silence is encoded as 0xFF
-  // This represents a linear PCM value of 0 (true silence)
-  // The 0xFF value is the result of:
-  // 1. Linear PCM value 0
-  // 2. μ-law compression algorithm
-  // 3. Bit inversion (as per G.711 standard for clock recovery)
-  return Buffer.alloc(FRAME_SIZE, 0xFF);
-}
-
-/**
- * Generate high-quality μ-law silence with optional dithering
- * @param {boolean} useDithering - Whether to add minimal dithering for better quality
- * @returns {Buffer} - High-quality μ-law silence buffer
- */
-function generateHighQualityMuLawSilence(useDithering = false) {
-  if (!useDithering) {
-    return generateMuLawSilence();
-  }
-  
-  // Add minimal dithering to prevent potential digital artifacts
-  // This creates very quiet pseudo-random noise that's below audible threshold
-  const silenceBuffer = Buffer.alloc(FRAME_SIZE);
-  
-  for (let i = 0; i < FRAME_SIZE; i++) {
-    // Generate very small random variation around true silence
-    // Range: 0xFE to 0xFF (represents very quiet noise around 0)
-    const dither = Math.random() < 0.95 ? 0xFF : 0xFE;
-    silenceBuffer[i] = dither;
-  }
-  
-  return silenceBuffer;
-}
-
-// Use high-quality silence generation
-const SILENCE_PAYLOAD = generateHighQualityMuLawSilence().toString('base64');
-
-/**
- * Get silence payload for different quality levels
- * @param {string} quality - 'standard', 'high', or 'dithered'
- * @returns {string} - Base64 encoded silence payload
- */
-function getSilencePayload(quality = 'high') {
-  switch (quality) {
-    case 'standard':
-      return generateMuLawSilence().toString('base64');
-    case 'dithered':
-      return generateHighQualityMuLawSilence(true).toString('base64');
-    case 'high':
-    default:
-      return generateHighQualityMuLawSilence(false).toString('base64');
-  }
-}
+const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xFF).toString('base64');
 
 /**
  * Initialize the persistent pacer that sends audio packets every 20ms
@@ -555,8 +416,8 @@ function initializePersistentPacer() {
       audioBuffer = audioBuffer.slice(FRAME_SIZE);
       payload = frame.toString('base64');
     } else {
-      // Send high-quality silence to keep the stream alive
-        payload = getSilencePayload('high');
+      // Send silence to keep the stream alive
+      payload = SILENCE_PAYLOAD;
     }
     
     // Always send a media message to maintain continuous flow
@@ -577,60 +438,6 @@ function initializePersistentPacer() {
 }
 
 /**
- * Update audio diagnostics with new chunk data
- * @param {number} base64Length - Length of base64 encoded audio
- * @param {number} decodedLength - Length of decoded audio buffer
- */
-function updateAudioDiagnostics(base64Length, decodedLength) {
-  audioStats.totalChunks++;
-  audioStats.totalBytes += decodedLength;
-  audioStats.lastChunkTime = Date.now();
-  
-  // Update size statistics
-  audioStats.minChunkSize = Math.min(audioStats.minChunkSize, base64Length);
-  audioStats.maxChunkSize = Math.max(audioStats.maxChunkSize, base64Length);
-  audioStats.averageChunkSize = audioStats.totalBytes / audioStats.totalChunks;
-  
-  // Log diagnostics every 50 chunks
-  if (audioStats.totalChunks % 50 === 0) {
-    console.log(`📊 Audio Stats: ${audioStats.totalChunks} chunks, ${audioStats.totalBytes} bytes, avg: ${Math.round(audioStats.averageChunkSize)}, skipped: ${audioStats.skippedChunks}, corrupted: ${audioStats.corruptedChunks}, alignment issues: ${audioStats.alignmentIssues}`);
-  }
-}
-
-/**
- * Log comprehensive audio diagnostics at the end of a stream
- */
-function logFinalAudioDiagnostics() {
-  if (audioStats.totalChunks === 0) {
-    console.log(`📊 No audio chunks processed in this stream`);
-    return;
-  }
-  
-  const successRate = ((audioStats.totalChunks - audioStats.skippedChunks - audioStats.corruptedChunks) / audioStats.totalChunks * 100).toFixed(1);
-  const avgChunkSize = Math.round(audioStats.averageChunkSize);
-  
-  console.log(`📊 Final Audio Stream Diagnostics:`);
-  console.log(`   Total chunks: ${audioStats.totalChunks}`);
-  console.log(`   Total bytes: ${audioStats.totalBytes}`);
-  console.log(`   Success rate: ${successRate}%`);
-  console.log(`   Skipped chunks: ${audioStats.skippedChunks}`);
-  console.log(`   Corrupted chunks: ${audioStats.corruptedChunks}`);
-  console.log(`   Alignment issues: ${audioStats.alignmentIssues}`);
-  console.log(`   Chunk size - Min: ${audioStats.minChunkSize}, Max: ${audioStats.maxChunkSize}, Avg: ${avgChunkSize}`);
-  
-  // Provide recommendations based on diagnostics
-  if (audioStats.skippedChunks > audioStats.totalChunks * 0.1) {
-    console.warn(`⚠️ High skip rate (${(audioStats.skippedChunks/audioStats.totalChunks*100).toFixed(1)}%) - consider checking Deepgram TTS settings`);
-  }
-  if (audioStats.corruptedChunks > 0) {
-    console.warn(`⚠️ Detected ${audioStats.corruptedChunks} corrupted chunks - potential network or encoding issues`);
-  }
-  if (audioStats.alignmentIssues > audioStats.totalChunks * 0.05) {
-    console.warn(`⚠️ High alignment issues (${(audioStats.alignmentIssues/audioStats.totalChunks*100).toFixed(1)}%) - audio frame boundaries may be inconsistent`);
-  }
-}
-
-/**
  * Clean up the persistent pacer
  */
 function cleanupPersistentPacer() {
@@ -640,51 +447,6 @@ function cleanupPersistentPacer() {
     console.log('🔇 Persistent pacer cleaned up');
   }
 }
-
-/**
- * Apply smoothing to audio buffer to prevent crackling
- * @param {Buffer} audioBuffer - The audio buffer to smooth
- * @param {boolean} isFirstBuffer - Whether this is the first buffer in the stream
- * @returns {Buffer} - Smoothed audio buffer
- */
-function applySmoothingToAudioBuffer(audioBuffer, isFirstBuffer = false) {
-  if (audioBuffer.length === 0) {
-    return audioBuffer;
-  }
-
-  const smoothedBuffer = Buffer.from(audioBuffer);
-  const fadeFrameSize = Math.min(FADE_FRAMES * FRAME_SIZE, audioBuffer.length);
-
-  // Apply fade-in at the beginning if this is the first buffer
-  if (isFirstBuffer && fadeFrameSize > 0) {
-    for (let i = 0; i < fadeFrameSize; i++) {
-      const fadeRatio = i / fadeFrameSize;
-      const originalValue = audioBuffer[i];
-      // For μ-law, 0xFF is silence, so fade from silence to audio
-      const silenceValue = 0xFF;
-      const fadedValue = Math.round(silenceValue + (originalValue - silenceValue) * fadeRatio);
-      smoothedBuffer[i] = Math.max(0, Math.min(255, fadedValue));
-    }
-  }
-
-  // Apply fade-out at the end (for potential cross-fading with next buffer)
-  if (fadeFrameSize > 0 && audioBuffer.length > fadeFrameSize) {
-    const startFadeOut = audioBuffer.length - fadeFrameSize;
-    for (let i = 0; i < fadeFrameSize; i++) {
-      const fadeRatio = 1 - (i / fadeFrameSize);
-      const bufferIndex = startFadeOut + i;
-      const originalValue = audioBuffer[bufferIndex];
-      const silenceValue = 0xFF;
-      const fadedValue = Math.round(silenceValue + (originalValue - silenceValue) * fadeRatio);
-      smoothedBuffer[bufferIndex] = Math.max(0, Math.min(255, fadedValue));
-    }
-  }
-
-  return smoothedBuffer;
-}
-
-// Export TTS model functions for testing
-export { getTTSModel, setTTSModel, getAvailableTTSModels };
 
 export async function handleDeepgramMessage(
   deepgramMessage,
@@ -922,56 +684,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
          return;
        }
        
-       // Enhanced audio quality validation
-       let decodedAudioBuffer = Buffer.from(audioData, 'base64');
-       
-       // Update audio diagnostics
-       updateAudioDiagnostics(audioData.length, decodedAudioBuffer.length);
-       
        // Check for suspiciously small audio chunks that might cause crackling
        if (audioData.length < 100) {
          console.warn(`[${timestamp}] ⚠️ Very small audio chunk (${audioData.length} chars) - potential crackling risk`);
-         // Skip very small chunks that could cause audio artifacts
-         if (audioData.length < 50) {
-           console.warn(`[${timestamp}] 🚫 Skipping extremely small audio chunk to prevent crackling`);
-           audioStats.skippedChunks++;
-           return;
-         }
-       }
-       
-       // Validate audio buffer integrity
-       if (decodedAudioBuffer.length === 0) {
-         console.warn(`[${timestamp}] ⚠️ Empty audio buffer after base64 decode`);
-         return;
-       }
-       
-       // Check for audio buffer size consistency (should be multiples of frame size for μ-law)
-       if (decodedAudioBuffer.length % FRAME_SIZE !== 0) {
-         console.warn(`[${timestamp}] ⚠️ Audio buffer size (${decodedAudioBuffer.length}) not aligned to frame size (${FRAME_SIZE})`);
-         // Pad or trim to frame boundary to prevent audio artifacts
-         const alignedSize = Math.floor(decodedAudioBuffer.length / FRAME_SIZE) * FRAME_SIZE;
-         if (alignedSize > 0) {
-           decodedAudioBuffer = decodedAudioBuffer.slice(0, alignedSize);
-           console.log(`[${timestamp}] 🔧 Aligned audio buffer from ${decodedAudioBuffer.length + (decodedAudioBuffer.length % FRAME_SIZE)} to ${alignedSize} bytes`);
-           audioStats.alignmentIssues++;
-         } else {
-           console.warn(`[${timestamp}] 🚫 Audio buffer too small after alignment, skipping`);
-           audioStats.skippedChunks++;
-           return;
-         }
-       }
-       
-       // Detect potential audio corruption (all same values could indicate issues)
-       const firstByte = decodedAudioBuffer[0];
-       const allSame = decodedAudioBuffer.every(byte => byte === firstByte);
-       if (allSame && decodedAudioBuffer.length > FRAME_SIZE) {
-         console.warn(`[${timestamp}] ⚠️ Detected potentially corrupted audio (all bytes = 0x${firstByte.toString(16).padStart(2, '0')})`);
-         // If it's all silence (0xFF), that's normal, otherwise it might be corruption
-         if (firstByte !== 0xFF) {
-           console.warn(`[${timestamp}] 🚫 Skipping potentially corrupted audio data`);
-           audioStats.corruptedChunks++;
-           return;
-         }
        }
       // Mark that we're actively streaming audio
       if (!isStreamingAudio) {
@@ -987,12 +702,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       
       // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
       try {
-        // Apply audio smoothing to prevent crackling
-        let smoothedAudioBuffer = applySmoothingToAudioBuffer(decodedAudioBuffer, audioBuffer.length === 0);
-        
-        // Use the validated and processed audio buffer
-        audioBuffer = Buffer.concat([audioBuffer, smoothedAudioBuffer]);
-        console.log(`[${timestamp}] 📥 Added validated TTS audio to buffer: ${smoothedAudioBuffer.length} bytes (total: ${audioBuffer.length})`);
+        const audioData = Buffer.from(deepgramData.data, 'base64');
+        audioBuffer = Buffer.concat([audioBuffer, audioData]);
+        console.log(`[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${audioBuffer.length})`);
         
         // Set a timeout to detect end of audio stream if no AgentAudioDone is received
         audioStreamTimeout = setTimeout(() => {
@@ -1033,9 +745,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       clearTimeout(audioStreamTimeout);
       audioStreamTimeout = null;
     }
-    
-    // Log final audio diagnostics
-    logFinalAudioDiagnostics();
     
     // The pacer will automatically switch to sending silence once the buffer is empty.
     // No need to send extra silence here; the pacer's default state handles it.
