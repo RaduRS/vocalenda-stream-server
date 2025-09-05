@@ -24,8 +24,25 @@ export function generateSystemPrompt(businessConfig, callContext) {
 
   // Get today's date in YYYY-MM-DD format
   const today = getTodayDate();
+  const todayDate = getCurrentUKDateTime();
+  const todayDayName = todayDate.toLocaleDateString("en-GB", {
+    weekday: "long",
+  });
 
-  let prompt = `You are an AI receptionist for ${business.name}. Today is ${today} (YYYY-MM-DD format). Your PRIMARY job is booking appointments using functions.
+  let prompt = `You are an AI receptionist for ${
+    business.name
+  }. Today is ${today} (${todayDayName}). Your PRIMARY job is booking appointments using functions.
+
+🗓️ IMPORTANT DATE AWARENESS:
+- Today is ${todayDayName}, ${today}
+- When customers say "Thursday" they mean the next Thursday
+- When customers say "tomorrow" they mean ${
+    new Date(todayDate.getTime() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0]
+  }
+- ALWAYS verify the correct day of the week before confirming dates
+- Use get_available_slots to check the actual date, don't assume what day a date falls on
 
 BUSINESS: ${business.name}`;
   if (business.address) prompt += ` | ${business.address}`;
