@@ -1,6 +1,6 @@
 import { format, parse, isValid, startOfWeek, addDays, parseISO } from 'date-fns';
 import { toZonedTime, fromZonedTime, format as formatTz } from 'date-fns-tz';
-import { enGB } from 'date-fns/locale/index.js';
+import { enGB } from 'date-fns/locale';
 
 // UK timezone constant
 export const UK_TIMEZONE = 'Europe/London';
@@ -304,4 +304,19 @@ export function getRelativeTimeDescription(date, baseDate) {
 }
 
 // Export commonly used date-fns functions
-export { addDays, subDays, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears, isSameDay, isBefore, isAfter, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
+export { 
+  addDays, 
+  subDays, 
+  addWeeks, 
+  subWeeks, 
+  addMonths, 
+  subMonths, 
+  addYears, 
+  subYears, 
+  isSameDay, 
+  isBefore, 
+  isAfter, 
+  differenceInDays, 
+  differenceInHours, 
+  differenceInMinutes 
+} from 'date-fns';
