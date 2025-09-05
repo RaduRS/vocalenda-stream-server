@@ -120,7 +120,7 @@ export async function handleFunctionCall(
         break;
 
       case "cancel_booking":
-        result = await cancelBooking(businessConfig, parameters);
+        result = await cancelBooking(businessConfig, parameters, callSid);
         break;
 
       case "end_call":
@@ -547,12 +547,21 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       return { error: "Calendar not connected" };
     }
 
+    // Get caller phone from session for verification
+    const callerPhone = session?.callerPhone;
+
+    if (!callerPhone) {
+      console.error("❌ No caller phone available for verification");
+      return { error: "Phone verification required for updates" };
+    }
+
     // Prepare request body with only defined values
     const requestBody = {
       business_id: business.id,
       customer_name: customerNameToUse,
       current_date: currentDateToUse,
       current_time: currentTimeToUse,
+      caller_phone: callerPhone,
     };
 
     // Update session with new booking details if provided
@@ -618,7 +627,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
  * @param {Object} params - Parameters including customer details and booking info
  * @returns {Object} Cancellation result or error
  */
-export async function cancelBooking(businessConfig, params) {
+export async function cancelBooking(businessConfig, params, callSid = null) {
   try {
     console.log(
       "❌ cancelBooking called with params:",
@@ -631,6 +640,15 @@ export async function cancelBooking(businessConfig, params) {
     if (!business?.google_calendar_id) {
       console.error("❌ No Google Calendar connected for business");
       return { error: "Calendar not connected" };
+    }
+
+    // Get caller phone from session for verification
+    const session = getCallSession(callSid);
+    const callerPhone = session?.callerPhone;
+
+    if (!callerPhone) {
+      console.error("❌ No caller phone available for verification");
+      return { error: "Phone verification required for cancellations" };
     }
 
     // Call the internal Next.js API to cancel the booking
@@ -648,6 +666,7 @@ export async function cancelBooking(businessConfig, params) {
           date,
           time,
           reason: reason || "Customer requested cancellation",
+          caller_phone: callerPhone,
         }),
       }
     );
