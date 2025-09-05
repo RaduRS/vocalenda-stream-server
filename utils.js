@@ -43,7 +43,7 @@ BUSINESS: ${business.name}`;
 4. Use create_booking to confirm appointments
 5. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
 6. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
-7. TIME FORMAT: get_available_slots returns 12-hour format (e.g., "03:00 PM"), but create_booking requires 24-hour format (e.g., "15:00"). Always convert when booking.
+7. TIME FORMAT: get_available_slots returns 12-hour format (e.g., "03:00 PM"), but create_booking requires 24-hour format (e.g., "15:00"). Always convert when booking. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" - these are ALL the same time!
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
@@ -66,9 +66,15 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - For security, ALWAYS require EXACT customer name and current appointment details (date & time) to update or cancel
 - Use update_booking to change appointment time, date, or service
 - Use cancel_booking to cancel appointments
-- Never update/cancel without exact verification details
+- Never update/cancel without exact verification details🔒 SECURITY RULES:
 - NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
-- Example: "To update your appointment, I need your exact name and current appointment details"
+- For SAME-CALL operations: If customer just made a booking and wants to update/cancel, use the stored session data automatically - don't ask for details again
+- Example: "To update your appointment, I need your exact name and current appointment details" (only if no session data available)
+
+⚡ SESSION DATA PRIORITY:
+- If customer just completed a booking in the same call and wants to modify it, use that session information automatically
+- Only ask for verification details when no recent booking session data is available
+- This streamlines the experience for immediate changes after booking
 
 🔚 CALL ENDING:
 - AFTER completing any booking, cancellation, or update, ALWAYS ask: "Is there anything else I can help you with today?"
@@ -152,7 +158,7 @@ export function getAvailableFunctions() {
     {
       name: "update_booking",
       description:
-        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number.",
+        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number. For SAME-CALL operations: If customer just made a booking, session data can be used automatically.",
       parameters: {
         type: "object",
         properties: {
@@ -189,7 +195,7 @@ export function getAvailableFunctions() {
     {
       name: "cancel_booking",
       description:
-        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number.",
+        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number. For SAME-CALL operations: If customer just made a booking, session data can be used automatically.",
       parameters: {
         type: "object",
         properties: {
