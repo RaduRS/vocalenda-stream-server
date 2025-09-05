@@ -1,17 +1,24 @@
-import { format, parse, isValid, startOfWeek, addDays, parseISO } from 'date-fns';
-import { toZonedTime, fromZonedTime, format as formatTz } from 'date-fns-tz';
-import { enGB } from 'date-fns/locale';
+import {
+  format,
+  parse,
+  isValid,
+  startOfWeek,
+  addDays,
+  parseISO,
+} from "date-fns";
+import { toZonedTime, fromZonedTime, format as formatTz } from "date-fns-tz";
+import { enGB } from "date-fns/locale";
 
 // UK timezone constant
-export const UK_TIMEZONE = 'Europe/London';
+export const UK_TIMEZONE = "Europe/London";
 
 // UK date format constants
-export const UK_DATE_FORMAT = 'dd/MM/yyyy';
-export const UK_TIME_FORMAT = 'HH:mm';
-export const UK_DATETIME_FORMAT = 'dd/MM/yyyy HH:mm';
-export const ISO_DATE_FORMAT = 'yyyy-MM-dd';
-export const ISO_TIME_FORMAT = 'HH:mm:ss';
-export const ISO_DATETIME_FORMAT = 'yyyy-MM-dd\'T\'HH:mm:ss';
+export const UK_DATE_FORMAT = "dd/MM/yyyy";
+export const UK_TIME_FORMAT = "HH:mm";
+export const UK_DATETIME_FORMAT = "dd/MM/yyyy HH:mm";
+export const ISO_DATE_FORMAT = "yyyy-MM-dd";
+export const ISO_TIME_FORMAT = "HH:mm:ss";
+export const ISO_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss";
 
 // UK locale options (Monday as first day of week)
 const UK_LOCALE_OPTIONS = {
@@ -80,9 +87,16 @@ export function formatISODateTime(date) {
  * Parse a UK date string (DD/MM/YYYY) to Date object
  */
 export function parseUKDate(dateString) {
-  const parsed = parse(dateString, UK_DATE_FORMAT, new Date(), UK_LOCALE_OPTIONS);
+  const parsed = parse(
+    dateString,
+    UK_DATE_FORMAT,
+    new Date(),
+    UK_LOCALE_OPTIONS
+  );
   if (!isValid(parsed)) {
-    throw new Error(`Invalid UK date format: ${dateString}. Expected format: DD/MM/YYYY`);
+    throw new Error(
+      `Invalid UK date format: ${dateString}. Expected format: DD/MM/YYYY`
+    );
   }
   return parsed;
 }
@@ -94,7 +108,9 @@ export function parseUKTime(timeString, baseDate) {
   const base = baseDate || getCurrentUKDate();
   const parsed = parse(timeString, UK_TIME_FORMAT, base, UK_LOCALE_OPTIONS);
   if (!isValid(parsed)) {
-    throw new Error(`Invalid UK time format: ${timeString}. Expected format: HH:MM`);
+    throw new Error(
+      `Invalid UK time format: ${timeString}. Expected format: HH:MM`
+    );
   }
   return parsed;
 }
@@ -103,9 +119,16 @@ export function parseUKTime(timeString, baseDate) {
  * Parse a UK datetime string (DD/MM/YYYY HH:MM) to Date object
  */
 export function parseUKDateTime(datetimeString) {
-  const parsed = parse(datetimeString, UK_DATETIME_FORMAT, new Date(), UK_LOCALE_OPTIONS);
+  const parsed = parse(
+    datetimeString,
+    UK_DATETIME_FORMAT,
+    new Date(),
+    UK_LOCALE_OPTIONS
+  );
   if (!isValid(parsed)) {
-    throw new Error(`Invalid UK datetime format: ${datetimeString}. Expected format: DD/MM/YYYY HH:MM`);
+    throw new Error(
+      `Invalid UK datetime format: ${datetimeString}. Expected format: DD/MM/YYYY HH:MM`
+    );
   }
   return parsed;
 }
@@ -116,7 +139,9 @@ export function parseUKDateTime(datetimeString) {
 export function parseISODate(dateString) {
   const parsed = parseISO(dateString);
   if (!isValid(parsed)) {
-    throw new Error(`Invalid ISO date format: ${dateString}. Expected format: YYYY-MM-DD`);
+    throw new Error(
+      `Invalid ISO date format: ${dateString}. Expected format: YYYY-MM-DD`
+    );
   }
   return parsed;
 }
@@ -126,7 +151,7 @@ export function parseISODate(dateString) {
  * Returns: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
  */
 export function getDayOfWeekName(date) {
-  return format(date, 'EEEE', UK_LOCALE_OPTIONS);
+  return format(date, "EEEE", UK_LOCALE_OPTIONS);
 }
 
 /**
@@ -134,7 +159,7 @@ export function getDayOfWeekName(date) {
  * Returns: Mon, Tue, Wed, Thu, Fri, Sat, Sun
  */
 export function getShortDayOfWeekName(date) {
-  return format(date, 'EEE', UK_LOCALE_OPTIONS);
+  return format(date, "EEE", UK_LOCALE_OPTIONS);
 }
 
 /**
@@ -177,7 +202,8 @@ export function createUKDateTime(isoDate, timeString) {
   if (!isValid(parsed)) {
     throw new Error(`Invalid date/time combination: ${isoDate} ${timeString}`);
   }
-  return toZonedTime(parsed, UK_TIMEZONE);
+  // Treat the input as UK local time and convert to UTC for storage
+  return fromZonedTime(parsed, UK_TIMEZONE);
 }
 
 /**
@@ -240,26 +266,37 @@ export function isValidUKTime(timeString) {
 export function convert12to24Hour(time12h) {
   const time = time12h.trim().toLowerCase();
   const [timePart, period] = time.split(/\s+/);
-  
-  if (!period || (!period.includes('am') && !period.includes('pm'))) {
-    throw new Error(`Invalid 12-hour time format: ${time12h}. Expected format: "HH:MM AM/PM"`);
+
+  if (!period || (!period.includes("am") && !period.includes("pm"))) {
+    throw new Error(
+      `Invalid 12-hour time format: ${time12h}. Expected format: "HH:MM AM/PM"`
+    );
   }
-  
-  const [hours, minutes] = timePart.split(':').map(Number);
-  
-  if (isNaN(hours) || isNaN(minutes) || hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+
+  const [hours, minutes] = timePart.split(":").map(Number);
+
+  if (
+    isNaN(hours) ||
+    isNaN(minutes) ||
+    hours < 1 ||
+    hours > 12 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
     throw new Error(`Invalid time values in: ${time12h}`);
   }
-  
+
   let hour24 = hours;
-  
-  if (period.includes('am')) {
+
+  if (period.includes("am")) {
     if (hours === 12) hour24 = 0; // 12 AM = 00:xx
-  } else if (period.includes('pm')) {
+  } else if (period.includes("pm")) {
     if (hours !== 12) hour24 = hours + 12; // PM times except 12 PM
   }
-  
-  return `${hour24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+  return `${hour24.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 /**
@@ -268,17 +305,24 @@ export function convert12to24Hour(time12h) {
  * @returns {string} Time in 12-hour format (e.g., "3:00 PM", "9:30 AM")
  */
 export function convert24to12Hour(time24h) {
-  const [hours, minutes] = time24h.split(':').map(Number);
-  
-  if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+  const [hours, minutes] = time24h.split(":").map(Number);
+
+  if (
+    isNaN(hours) ||
+    isNaN(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
     throw new Error(`Invalid 24-hour time format: ${time24h}`);
   }
-  
-  const period = hours >= 12 ? 'PM' : 'AM';
+
+  const period = hours >= 12 ? "PM" : "AM";
   let hour12 = hours % 12;
   if (hour12 === 0) hour12 = 12; // 0 becomes 12
-  
-  return `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`;
+
+  return `${hour12}:${minutes.toString().padStart(2, "0")} ${period}`;
 }
 
 /**
@@ -290,33 +334,41 @@ export function convert24to12Hour(time24h) {
 export function getRelativeTimeDescription(date, baseDate) {
   const base = baseDate || getCurrentUKDate();
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const baseNormalized = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-  
-  const diffDays = Math.round((target.getTime() - baseNormalized.getTime()) / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 0) return 'today';
-  if (diffDays === 1) return 'tomorrow';
-  if (diffDays === -1) return 'yesterday';
-  if (diffDays > 1 && diffDays <= 7) return getDayOfWeekName(target).toLowerCase();
-  if (diffDays > 7 && diffDays <= 14) return `next ${getDayOfWeekName(target).toLowerCase()}`;
-  
+  const baseNormalized = new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate()
+  );
+
+  const diffDays = Math.round(
+    (target.getTime() - baseNormalized.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "tomorrow";
+  if (diffDays === -1) return "yesterday";
+  if (diffDays > 1 && diffDays <= 7)
+    return getDayOfWeekName(target).toLowerCase();
+  if (diffDays > 7 && diffDays <= 14)
+    return `next ${getDayOfWeekName(target).toLowerCase()}`;
+
   return formatUKDate(target);
 }
 
 // Export commonly used date-fns functions
-export { 
-  addDays, 
-  subDays, 
-  addWeeks, 
-  subWeeks, 
-  addMonths, 
-  subMonths, 
-  addYears, 
-  subYears, 
-  isSameDay, 
-  isBefore, 
-  isAfter, 
-  differenceInDays, 
-  differenceInHours, 
-  differenceInMinutes 
-} from 'date-fns';
+export {
+  addDays,
+  subDays,
+  addWeeks,
+  subWeeks,
+  addMonths,
+  subMonths,
+  addYears,
+  subYears,
+  isSameDay,
+  isBefore,
+  isAfter,
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+} from "date-fns";
