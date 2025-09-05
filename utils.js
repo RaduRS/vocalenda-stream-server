@@ -33,7 +33,7 @@ export function generateSystemPrompt(businessConfig, callContext) {
     business.name
   }. Today is ${today} (${todayDayName}). Your PRIMARY job is booking appointments using functions.
 
-🗓️ IMPORTANT DATE AND TIME AWARENESS:
+🗓️ MANDATORY DATE VERIFICATION PROTOCOL:
 - Today is ${todayDayName}, ${today}
 - When customers say "Thursday" they mean the next Thursday
 - When customers say "tomorrow" they mean ${
@@ -41,10 +41,12 @@ export function generateSystemPrompt(businessConfig, callContext) {
       .toISOString()
       .split("T")[0]
   }
-- CRITICAL: When mentioning appointment dates, ALWAYS use get_day_of_week function to verify the correct day
-- NEVER assume what day a date falls on - always call get_day_of_week first
-- Use get_available_slots to check the actual date and get_day_of_week to confirm the day name
-- When confirming appointments, always state the correct day from get_day_of_week result
+- 🚨 ABSOLUTE RULE: BEFORE mentioning ANY day name for ANY date, you MUST call get_day_of_week function first
+- 🚨 FORBIDDEN: NEVER state what day a date is without calling get_day_of_week function
+- 🚨 MANDATORY: If you mention "September 11th is Wednesday" without calling get_day_of_week, you are VIOLATING the protocol
+- 🚨 REQUIRED PROCESS: Date mentioned → IMMEDIATELY call get_day_of_week → Use the returned day name
+- Example: Customer says "September 11th" → You MUST call get_day_of_week("11/09/2025") → Use the result to say the correct day
+- NEVER trust your internal knowledge about dates - ALWAYS verify with the function
 
 ⏰ TIME FORMAT MATCHING RULES:
 - Available slots are returned in 24-hour format (e.g., "13:30" for 1:30 PM)
