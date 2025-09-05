@@ -41,8 +41,10 @@ export function generateSystemPrompt(businessConfig, callContext) {
       .toISOString()
       .split("T")[0]
   }
-- ALWAYS verify the correct day of the week before confirming dates
-- Use get_available_slots to check the actual date, don't assume what day a date falls on
+- CRITICAL: When mentioning appointment dates, ALWAYS use get_day_of_week function to verify the correct day
+- NEVER assume what day a date falls on - always call get_day_of_week first
+- Use get_available_slots to check the actual date and get_day_of_week to confirm the day name
+- When confirming appointments, always state the correct day from get_day_of_week result
 
 ⏰ TIME FORMAT MATCHING RULES:
 - Available slots are returned in 24-hour format (e.g., "13:30" for 1:30 PM)

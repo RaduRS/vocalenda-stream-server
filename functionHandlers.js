@@ -2,9 +2,8 @@ import WebSocket from "ws";
 import { getConfig } from "./config.js";
 import {
   parseISODate,
+  parseUKDate,
   parseUKTime,
-  createUKDateTime,
-  formatISODateTime,
   getDayOfWeekName,
   convert12to24Hour,
   UK_TIMEZONE,
@@ -135,6 +134,26 @@ export async function handleFunctionCall(
 
       case "end_call":
         result = await endCall(callSid, parameters);
+        break;
+
+      case "get_day_of_week":
+        try {
+          const parsedDate = parseUKDate(parameters.date);
+          const dayName = getDayOfWeekName(parsedDate);
+          result = {
+            date: parameters.date,
+            day_of_week: dayName,
+            formatted: `${dayName}, ${parsedDate.toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}`,
+          };
+        } catch (error) {
+          result = {
+            error: "Invalid date format. Please use DD/MM/YYYY format.",
+          };
+        }
         break;
 
       default:
