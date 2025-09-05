@@ -136,7 +136,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
               think: {
                 provider: {
                   type: "open_ai",
-                  model: "gpt-4o-mini",
+                  model: "gpt-5",
                 },
                 prompt: systemPrompt,
                 functions: Array.isArray(functionsArray) ? functionsArray : [],
