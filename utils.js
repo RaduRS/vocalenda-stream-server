@@ -43,6 +43,7 @@ BUSINESS: ${business.name}`;
 4. Use create_booking to confirm appointments
 5. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
 6. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
+7. TIME FORMAT: get_available_slots returns 12-hour format (e.g., "03:00 PM"), but create_booking requires 24-hour format (e.g., "15:00"). Always convert when booking.
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
@@ -66,6 +67,7 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - Use update_booking to change appointment time, date, or service
 - Use cancel_booking to cancel appointments
 - Never update/cancel without exact verification details
+- NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
 - Example: "To update your appointment, I need your exact name and current appointment details"
 
 🔚 CALL ENDING:
@@ -136,7 +138,8 @@ export function getAvailableFunctions() {
           },
           time: {
             type: "string",
-            description: "Time in HH:MM format (24-hour)",
+            description:
+              "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
           },
           customer_phone: {
             type: "string",
@@ -149,7 +152,7 @@ export function getAvailableFunctions() {
     {
       name: "update_booking",
       description:
-        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking.",
+        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number.",
       parameters: {
         type: "object",
         properties: {
@@ -186,7 +189,7 @@ export function getAvailableFunctions() {
     {
       name: "cancel_booking",
       description:
-        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking.",
+        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number.",
       parameters: {
         type: "object",
         properties: {
