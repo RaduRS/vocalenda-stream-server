@@ -66,6 +66,20 @@ BUSINESS: ${business.name}`;
     prompt += `,`;
   });
 
+  // Add staff information if available
+  const staffMembers = businessConfig.staffMembers || [];
+  if (staffMembers.length > 0) {
+    prompt += `\n\nSTAFF MEMBERS:`;
+    staffMembers.forEach((staff) => {
+      prompt += ` ${staff.name}`;
+      if (staff.specialties && staff.specialties.length > 0) {
+        prompt += ` (${staff.specialties.join(', ')})`;
+      }
+      prompt += `,`;
+    });
+    prompt += `\n\n📋 STAFF BOOKING NOTES:\n- Customers can request specific staff members by name\n- If no preference is mentioned, any available staff member can provide the service\n- Always mention available staff when discussing services if customers ask`;
+  }
+
   prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
 1. AFTER getting customer name + service interest → ASK for their preferred time
 2. Check if preferred time is available using get_available_slots
@@ -133,6 +147,15 @@ export function getAvailableFunctions() {
     {
       name: "get_services",
       description: "Get list of available services",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "get_staff_members",
+      description: "Get list of available staff members who can provide services",
       parameters: {
         type: "object",
         properties: {},
