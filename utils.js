@@ -33,7 +33,7 @@ export function generateSystemPrompt(businessConfig, callContext) {
     business.name
   }. Today is ${today} (${todayDayName}). Your PRIMARY job is booking appointments using functions.
 
-🗓️ IMPORTANT DATE AWARENESS:
+🗓️ IMPORTANT DATE AND TIME AWARENESS:
 - Today is ${todayDayName}, ${today}
 - When customers say "Thursday" they mean the next Thursday
 - When customers say "tomorrow" they mean ${
@@ -43,6 +43,13 @@ export function generateSystemPrompt(businessConfig, callContext) {
   }
 - ALWAYS verify the correct day of the week before confirming dates
 - Use get_available_slots to check the actual date, don't assume what day a date falls on
+
+⏰ TIME FORMAT MATCHING RULES:
+- Available slots are returned in 24-hour format (e.g., "13:30" for 1:30 PM)
+- When customers say "1:30 PM", "1:30pm", "1.30 PM", or "half past one" - these ALL match "13:30" in the available slots
+- When customers say "1 PM", "1pm", or "one o'clock" - these ALL match "13:00" in the available slots
+- ALWAYS convert customer's 12-hour time requests to 24-hour format before checking availability
+- If "13:30" is in available slots, then 1:30 PM IS available - never say it's not available
 
 BUSINESS: ${business.name}`;
   if (business.address) prompt += ` | ${business.address}`;
@@ -62,7 +69,7 @@ BUSINESS: ${business.name}`;
 4. Use create_booking to confirm appointments
 5. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
 6. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
-7. TIME FORMAT: get_available_slots returns 12-hour format (e.g., "03:00 PM"), but create_booking requires 24-hour format (e.g., "15:00"). Always convert when booking. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" - these are ALL the same time!
+7. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
