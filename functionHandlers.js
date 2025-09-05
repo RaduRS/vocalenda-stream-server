@@ -450,22 +450,28 @@ export async function createBooking(businessConfig, params, callSid = null) {
       return { error: `Invalid date or time format: ${error.message}` };
     }
 
-    // Create proper datetime objects
-    const startDateTime = createUKDateTime(
-      date,
+    // Convert time to 24-hour format if needed
+    const timeIn24h =
       time.includes("AM") ||
-        time.includes("PM") ||
-        time.includes("am") ||
-        time.includes("pm")
+      time.includes("PM") ||
+      time.includes("am") ||
+      time.includes("pm")
         ? convert12to24Hour(time)
-        : time
-    );
-    const endDateTime = new Date(
-      startDateTime.getTime() + service.duration_minutes * 60 * 1000
-    );
+        : time;
 
-    const startTime = formatISODateTime(startDateTime);
-    const endTimeString = formatISODateTime(endDateTime);
+    // Calculate end time by adding service duration
+    const [hours, minutes] = timeIn24h.split(":").map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + service.duration_minutes;
+    const endHours = Math.floor(endMinutes / 60);
+    const endMins = endMinutes % 60;
+    const endTimeIn24h = `${endHours.toString().padStart(2, "0")}:${endMins
+      .toString()
+      .padStart(2, "0")}`;
+
+    // Send separate date and time components to avoid timezone conversion issues
+    const startTime = `${timeIn24h}:00`;
+    const endTimeString = `${endTimeIn24h}:00`;
 
     console.log(`🕐 Appointment datetime (UK local): ${startTime}`);
     console.log(`🕐 Business timezone: ${businessTimezone}`);
@@ -477,6 +483,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
     const bookingData = {
       businessId: businessConfig.business.id,
       serviceId: service.id, // Use the actual service UUID, not the name
+      appointmentDate: date,
       startTime: startTime,
       endTime: endTimeString,
       customerName: customer_name,
