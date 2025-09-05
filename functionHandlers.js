@@ -94,7 +94,7 @@ export async function handleFunctionCall(
 
     switch (function_name) {
       case "get_services":
-        console.log("🔍 Processing get_services request...");
+        console.log("🔧 Processing get_services function call");
         console.log(
           "📊 Raw services from config:",
           businessConfig.services.length,
@@ -114,6 +114,28 @@ export async function handleFunctionCall(
           JSON.stringify(result, null, 2)
         );
         console.log("✅ get_services processing complete");
+        break;
+
+      case "get_staff_members":
+        console.log("👥 Processing get_staff_members function call");
+        console.log(
+          "📊 Raw staff from config:",
+          businessConfig.staffMembers?.length || 0,
+          "staff members found"
+        );
+
+        result = (businessConfig.staffMembers || []).map((staff) => ({
+          id: staff.id,
+          name: staff.name,
+          specialties: staff.specialties || [],
+          working_hours: staff.working_hours,
+        }));
+
+        console.log(
+          "👥 Mapped staff result:",
+          JSON.stringify(result, null, 2)
+        );
+        console.log("✅ get_staff_members processing complete");
         break;
 
       case "get_available_slots":

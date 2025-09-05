@@ -33,6 +33,13 @@ export async function loadBusinessConfig(businessId) {
       .eq("business_id", businessId)
       .eq("is_active", true);
 
+    // Load active staff members
+    const { data: staffMembers, error: staffError } = await supabase
+      .from("staff_members")
+      .select("*")
+      .eq("business_id", businessId)
+      .eq("is_active", true);
+
     // Log Google Calendar connection status for debugging
     logGoogleCalendarStatus(business, config);
 
@@ -40,6 +47,7 @@ export async function loadBusinessConfig(businessId) {
       business,
       config: config || null,
       services: services || [],
+      staffMembers: staffMembers || [],
     };
   } catch (error) {
     console.error("Error loading business config:", error);
