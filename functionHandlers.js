@@ -642,9 +642,21 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
       return { error: "Calendar not connected" };
     }
 
-    // Get caller phone from session for verification
+    // Get session data to fill in missing customer information
     const session = getCallSession(callSid);
+    console.log("📋 Session data for cancellation:", session);
+
+    // Use session data as fallback for missing information
+    const customerNameToUse = customer_name || session.customerName;
+    const dateToUse = date || session.lastBookingDate;
+    const timeToUse = time || session.lastBookingTime;
     const callerPhone = session?.callerPhone;
+
+    console.log("🔄 Using booking info for cancellation:", {
+      customerName: customerNameToUse,
+      date: dateToUse,
+      time: timeToUse,
+    });
 
     if (!callerPhone) {
       console.error("❌ No caller phone available for verification");
@@ -662,9 +674,9 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
         },
         body: JSON.stringify({
           business_id: business.id,
-          customer_name,
-          date,
-          time,
+          customer_name: customerNameToUse,
+          date: dateToUse,
+          time: timeToUse,
           reason: reason || "Customer requested cancellation",
           caller_phone: callerPhone,
         }),

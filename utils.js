@@ -68,13 +68,18 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - Use cancel_booking to cancel appointments
 - Never update/cancel without exact verification details🔒 SECURITY RULES:
 - NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
-- For SAME-CALL operations: If customer just made a booking and wants to update/cancel, use the stored session data automatically - don't ask for details again
-- Example: "To update your appointment, I need your exact name and current appointment details" (only if no session data available)
+
+🔄 SAME-CALL OPERATIONS (CRITICAL):
+- If a customer JUST made a booking in this same call and immediately wants to update/cancel it, DO NOT ask for their name, date, or time again
+- The system automatically remembers their booking details from the same call session
+- Simply proceed with the update/cancellation using the stored information
+- Example: Customer says "Actually, can I change that to 3 PM instead?" → Just call update_booking with the new time
+- Example: Customer says "Never mind, cancel that appointment" → Just call cancel_booking immediately
 
 ⚡ SESSION DATA PRIORITY:
-- If customer just completed a booking in the same call and wants to modify it, use that session information automatically
-- Only ask for verification details when no recent booking session data is available
-- This streamlines the experience for immediate changes after booking
+- SAME CALL = Use stored session data automatically, no questions asked
+- NEW CALL = Ask for verification details (name, date, time)
+- This creates a seamless experience for immediate changes after booking
 
 🔚 CALL ENDING:
 - AFTER completing any booking, cancellation, or update, ALWAYS ask: "Is there anything else I can help you with today?"
@@ -144,8 +149,7 @@ export function getAvailableFunctions() {
           },
           time: {
             type: "string",
-            description:
-              "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
+            description: "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
           },
           customer_phone: {
             type: "string",
@@ -158,21 +162,21 @@ export function getAvailableFunctions() {
     {
       name: "update_booking",
       description:
-        "Update an existing booking. For security, requires EXACT customer name and current appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number. For SAME-CALL operations: If customer just made a booking, session data can be used automatically.",
+        "Update an existing booking. SAME-CALL: If customer just made a booking in this call, you can call this with just the new details (new_date, new_time, or new_service_id) - the system will automatically use stored session data for customer_name, current_date, and current_time. NEW CALL: Requires exact customer name and current appointment details for security.",
       parameters: {
         type: "object",
         properties: {
           customer_name: {
             type: "string",
-            description: "EXACT customer name as it appears in the booking",
+            description: "EXACT customer name (optional for same-call operations - will use session data)",
           },
           current_date: {
             type: "string",
-            description: "Current appointment date in YYYY-MM-DD format",
+            description: "Current appointment date in YYYY-MM-DD format (optional for same-call operations)",
           },
           current_time: {
             type: "string",
-            description: "Current appointment time in HH:MM format",
+            description: "Current appointment time in HH:MM format (optional for same-call operations)",
           },
           new_date: {
             type: "string",
@@ -189,34 +193,34 @@ export function getAvailableFunctions() {
             description: "New service ID if changing service (optional)",
           },
         },
-        required: ["customer_name", "current_date", "current_time"],
+        required: [],
       },
     },
     {
       name: "cancel_booking",
       description:
-        "Cancel an existing booking. For security, requires EXACT customer name and appointment details to identify the booking. Phone verification is handled automatically - do NOT ask customer for phone number. For SAME-CALL operations: If customer just made a booking, session data can be used automatically.",
+        "Cancel an existing booking. SAME-CALL: If customer just made a booking in this call, you can call this with just the reason (optional) - the system will automatically use stored session data for customer_name, date, and time. NEW CALL: Requires exact customer name and appointment details for security.",
       parameters: {
         type: "object",
         properties: {
           customer_name: {
             type: "string",
-            description: "EXACT customer name as it appears in the booking",
+            description: "EXACT customer name (optional for same-call operations - will use session data)",
           },
           date: {
             type: "string",
-            description: "Appointment date in YYYY-MM-DD format",
+            description: "Appointment date in YYYY-MM-DD format (optional for same-call operations)",
           },
           time: {
             type: "string",
-            description: "Appointment time in HH:MM format",
+            description: "Appointment time in HH:MM format (optional for same-call operations)",
           },
           reason: {
             type: "string",
             description: "Reason for cancellation (optional)",
           },
         },
-        required: ["customer_name", "date", "time"],
+        required: [],
       },
     },
     {
