@@ -2,12 +2,14 @@
  * Utility functions and constants for the Vocalenda Stream Server
  */
 
+import { formatISODate, getCurrentUKDateTime } from "./dateUtils.js";
+
 /**
  * Get today's date in YYYY-MM-DD format
  * @returns {string} Today's date in YYYY-MM-DD format
  */
 export function getTodayDate() {
-  return new Date().toISOString().split("T")[0];
+  return formatISODate(getCurrentUKDateTime());
 }
 
 /**
@@ -149,7 +151,8 @@ export function getAvailableFunctions() {
           },
           time: {
             type: "string",
-            description: "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
+            description:
+              "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
           },
           customer_phone: {
             type: "string",
@@ -168,15 +171,18 @@ export function getAvailableFunctions() {
         properties: {
           customer_name: {
             type: "string",
-            description: "EXACT customer name (optional for same-call operations - will use session data)",
+            description:
+              "EXACT customer name (optional for same-call operations - will use session data)",
           },
           current_date: {
             type: "string",
-            description: "Current appointment date in YYYY-MM-DD format (optional for same-call operations)",
+            description:
+              "Current appointment date in YYYY-MM-DD format (optional for same-call operations)",
           },
           current_time: {
             type: "string",
-            description: "Current appointment time in HH:MM format (optional for same-call operations)",
+            description:
+              "Current appointment time in HH:MM format (optional for same-call operations)",
           },
           new_date: {
             type: "string",
@@ -205,15 +211,18 @@ export function getAvailableFunctions() {
         properties: {
           customer_name: {
             type: "string",
-            description: "EXACT customer name (optional for same-call operations - will use session data)",
+            description:
+              "EXACT customer name (optional for same-call operations - will use session data)",
           },
           date: {
             type: "string",
-            description: "Appointment date in YYYY-MM-DD format (optional for same-call operations)",
+            description:
+              "Appointment date in YYYY-MM-DD format (optional for same-call operations)",
           },
           time: {
             type: "string",
-            description: "Appointment time in HH:MM format (optional for same-call operations)",
+            description:
+              "Appointment time in HH:MM format (optional for same-call operations)",
           },
           reason: {
             type: "string",

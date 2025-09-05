@@ -1,5 +1,15 @@
 import WebSocket from "ws";
 import { getConfig } from "./config.js";
+import {
+  parseISODate,
+  parseUKTime,
+  createUKDateTime,
+  formatISODateTime,
+  getDayOfWeekName,
+  convert12to24Hour,
+  UK_TIMEZONE,
+  formatISODate,
+} from "./dateUtils.js";
 
 const config = getConfig();
 
@@ -408,31 +418,60 @@ export async function createBooking(businessConfig, params, callSid = null) {
       ")"
     );
 
-    // Calculate start and end times with proper timezone handling
+    // Calculate start and end times with proper UK timezone handling
     const business = businessConfig.business;
-    const businessTimezone = business.timezone || "UTC";
+    const businessTimezone = business.timezone || UK_TIMEZONE;
 
     console.log(
       `🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`
     );
 
-    // Create datetime string in business timezone format for calendar API
-    const appointmentDateTime = `${date}T${time}:00`;
+    // Parse and validate the date and time using UK standards
+    let parsedDate, parsedTime;
+    try {
+      parsedDate = parseISODate(date);
+      // Convert 12-hour format to 24-hour if needed
+      const timeIn24h =
+        time.includes("AM") ||
+        time.includes("PM") ||
+        time.includes("am") ||
+        time.includes("pm")
+          ? convert12to24Hour(time)
+          : time;
+      parsedTime = parseUKTime(timeIn24h, parsedDate);
 
-    // For calendar events, we need to send the datetime in the business timezone
-    // The calendar API expects the time as it should appear in the business timezone
-    const startTime = appointmentDateTime;
-    const endTime =
-      new Date(`${appointmentDateTime}Z`).getTime() +
-      service.duration_minutes * 60000;
-    const endTimeString = new Date(endTime).toISOString().slice(0, 19);
+      // Verify the day of the week is correct
+      const dayOfWeek = getDayOfWeekName(parsedDate);
+      console.log(
+        `📅 Parsed date: ${formatISODate(parsedDate)} (${dayOfWeek})`
+      );
+    } catch (error) {
+      console.error(`❌ Date/time parsing error:`, error.message);
+      return { error: `Invalid date or time format: ${error.message}` };
+    }
 
-    console.log(
-      `🕐 Appointment datetime (business local): ${appointmentDateTime}`
+    // Create proper datetime objects
+    const startDateTime = createUKDateTime(
+      date,
+      time.includes("AM") ||
+        time.includes("PM") ||
+        time.includes("am") ||
+        time.includes("pm")
+        ? convert12to24Hour(time)
+        : time
     );
+    const endDateTime = new Date(
+      startDateTime.getTime() + service.duration_minutes * 60 * 1000
+    );
+
+    const startTime = formatISODateTime(startDateTime);
+    const endTimeString = formatISODateTime(endDateTime);
+
+    console.log(`🕐 Appointment datetime (UK local): ${startTime}`);
     console.log(`🕐 Business timezone: ${businessTimezone}`);
     console.log(`🕐 Start time: ${startTime}`);
     console.log(`🕐 End time: ${endTimeString}`);
+    console.log(`📅 Day of week: ${getDayOfWeekName(parsedDate)}`);
 
     // Prepare booking data for the Next.js API
     const bookingData = {
