@@ -727,8 +727,8 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     if (transcript) {
       await handleTranscriptAnalysis(transcript, timestamp, state);
     }
-  } else if (deepgramData.type === "SpeechStarted") {
-    console.log(`[${timestamp}] 🎤 SPEECH_STARTED: User began speaking`);
+  } else if (deepgramData.type === "UserStartedSpeaking") {
+    console.log(`[${timestamp}] 🎤 USER_STARTED_SPEAKING: User began speaking`);
     // Reset silence tracking when user starts speaking
     if (silenceTimeout) {
       clearTimeout(silenceTimeout);
@@ -737,68 +737,16 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     silenceStartTime = null;
     silencePromptCount = 0;
     console.log(`[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`);
-  } else if (deepgramData.type === "UtteranceEnd") {
-    console.log(`[${timestamp}] 🔇 UTTERANCE_END: User finished speaking`);
-    console.log(
-      `[${timestamp}] 🧠 EXPECTING: AgentThinking → FunctionCall or TtsStart`
-    );
-    
-    // Start silence tracking
-    silenceStartTime = Date.now();
+  } else if (deepgramData.type === "SpeechStarted") {
+    console.log(`[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`);
+    // Reset silence tracking when user starts speaking
+    if (silenceTimeout) {
+      clearTimeout(silenceTimeout);
+      silenceTimeout = null;
+    }
+    silenceStartTime = null;
     silencePromptCount = 0;
-    console.log(`[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking`);
-    
-    // Set up silence detection timeouts
-    const scheduleNextSilenceCheck = () => {
-      if (silenceTimeout) clearTimeout(silenceTimeout);
-      
-      silenceTimeout = setTimeout(() => {
-        const silenceDuration = Date.now() - silenceStartTime;
-        console.log(`[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`);
-        
-        if (silencePromptCount === 0 && silenceDuration >= 5000) {
-          // First prompt at 5 seconds
-          silencePromptCount = 1;
-          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_1: Sending first prompt`);
-          deepgramWs.send(JSON.stringify({
-            type: "Speak",
-            text: "Are you still there? I'm here to help with your appointment."
-          }));
-          scheduleNextSilenceCheck();
-        } else if (silencePromptCount === 1 && silenceDuration >= 10000) {
-          // Second prompt at 10 seconds
-          silencePromptCount = 2;
-          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_2: Sending second prompt`);
-          deepgramWs.send(JSON.stringify({
-            type: "Speak",
-            text: "I'll wait just a moment longer in case you need anything."
-          }));
-          scheduleNextSilenceCheck();
-        } else if (silencePromptCount === 2 && silenceDuration >= 15000) {
-          // Auto-disconnect at 15 seconds
-          console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s`);
-          deepgramWs.send(JSON.stringify({
-            type: "Speak",
-            text: "I'll be here when you're ready. Have a great day!"
-          }));
-          // End call after farewell message
-          setTimeout(() => {
-            deepgramWs.send(JSON.stringify({
-              type: "FunctionCall",
-              function_call: {
-                name: "end_call",
-                arguments: "{}"
-              }
-            }));
-          }, 3000); // Wait 3 seconds for farewell to complete
-        } else if (silenceDuration < 15000) {
-          // Continue checking
-          scheduleNextSilenceCheck();
-        }
-      }, 1000); // Check every second
-    };
-    
-    scheduleNextSilenceCheck();
+    console.log(`[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`);
   } else if (deepgramData.type === "TtsAudio") {
     console.log(
       `[${timestamp}] 🔊 TTS_AUDIO: AI sending audio response (${
@@ -893,6 +841,65 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       clearTimeout(audioStreamTimeout);
       audioStreamTimeout = null;
     }
+
+    // Start silence tracking after AI finishes speaking
+    silenceStartTime = Date.now();
+    silencePromptCount = 0;
+    console.log(`[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`);
+    
+    // Set up silence detection timeouts
+    const scheduleNextSilenceCheck = () => {
+      if (silenceTimeout) clearTimeout(silenceTimeout);
+      
+      silenceTimeout = setTimeout(() => {
+        if (!silenceStartTime) return; // User started speaking, abort
+        
+        const silenceDuration = Date.now() - silenceStartTime;
+        console.log(`[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`);
+        
+        if (silencePromptCount === 0 && silenceDuration >= 5000) {
+          // First prompt at 5 seconds
+          silencePromptCount = 1;
+          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_1: Sending first prompt`);
+          deepgramWs.send(JSON.stringify({
+            type: "Speak",
+            text: "Are you still there? I'm here to help with your appointment."
+          }));
+          scheduleNextSilenceCheck();
+        } else if (silencePromptCount === 1 && silenceDuration >= 10000) {
+          // Second prompt at 10 seconds
+          silencePromptCount = 2;
+          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_2: Sending second prompt`);
+          deepgramWs.send(JSON.stringify({
+            type: "Speak",
+            text: "I'll wait just a moment longer in case you need anything."
+          }));
+          scheduleNextSilenceCheck();
+        } else if (silencePromptCount === 2 && silenceDuration >= 15000) {
+          // Auto-disconnect at 15 seconds
+          console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s`);
+          deepgramWs.send(JSON.stringify({
+            type: "Speak",
+            text: "I'll be here when you're ready. Have a great day!"
+          }));
+          // End call after farewell message
+          setTimeout(() => {
+            deepgramWs.send(JSON.stringify({
+              type: "FunctionCallRequest",
+              functions: [{
+                name: "end_call",
+                arguments: JSON.stringify({ reason: "silence timeout" })
+              }]
+            }));
+          }, 3000); // Wait 3 seconds for farewell to complete
+        } else if (silenceDuration < 15000) {
+          // Continue checking
+          scheduleNextSilenceCheck();
+        }
+      }, 1000); // Check every second
+    };
+    
+    scheduleNextSilenceCheck();
 
     // The pacer will automatically switch to sending silence once the buffer is empty.
     // No need to send extra silence here; the pacer's default state handles it.
