@@ -2,7 +2,7 @@
  * Utility functions and constants for the Vocalenda Stream Server
  */
 
-import { formatISODate, getCurrentUKDateTime } from "./dateUtils.js";
+import { formatISODate, getCurrentUKDateTime, getDayOfWeekName, parseISODate } from "./dateUtils.js";
 
 /**
  * Get today's date in YYYY-MM-DD format
@@ -80,15 +80,30 @@ BUSINESS: ${business.name}`;
     prompt += `\n\n📋 STAFF BOOKING NOTES:\n- Customers can request specific staff members by name\n- If no preference is mentioned, any available staff member can provide the service\n- Always mention available staff when discussing services if customers ask`;
   }
 
+  // Add business hours information if available
+  const businessHours = businessConfig.config?.business_hours;
+  if (businessHours) {
+    prompt += `\n\n🕐 BUSINESS HOURS:`;
+    if (businessHours.monday) prompt += ` Mon: ${businessHours.monday.open}-${businessHours.monday.close}`;
+    if (businessHours.tuesday) prompt += ` Tue: ${businessHours.tuesday.open}-${businessHours.tuesday.close}`;
+    if (businessHours.wednesday) prompt += ` Wed: ${businessHours.wednesday.open}-${businessHours.wednesday.close}`;
+    if (businessHours.thursday) prompt += ` Thu: ${businessHours.thursday.open}-${businessHours.thursday.close}`;
+    if (businessHours.friday) prompt += ` Fri: ${businessHours.friday.open}-${businessHours.friday.close}`;
+    if (businessHours.saturday) prompt += ` Sat: ${businessHours.saturday.open}-${businessHours.saturday.close}`;
+    if (businessHours.sunday) prompt += ` Sun: ${businessHours.sunday.open}-${businessHours.sunday.close}`;
+    prompt += `\n\n⚠️ BUSINESS HOURS VALIDATION:\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
+  }
+
   prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
 1. AFTER getting customer name + service interest → ASK for their preferred time
-2. Check if preferred time is available using get_available_slots
-3. If available, confirm and book directly. If not, suggest alternatives
-4. Use create_booking to confirm appointments
-5. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
-6. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
-7. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
-8. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
+2. VALIDATE requested time is within business hours BEFORE checking availability
+3. Check if preferred time is available using get_available_slots (only if within business hours)
+4. If available, confirm and book directly. If not, suggest alternatives
+5. Use create_booking to confirm appointments
+6. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
+7. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
+8. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
+9. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
 
 ⚡ EXACT WORKFLOW:
 Customer: "I want a haircut tomorrow"
@@ -109,10 +124,16 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
 📝 BOOKING UPDATES & CANCELLATIONS:
 - For security, ALWAYS require EXACT customer name and current appointment details (date & time) to update or cancel
+- Phone number verification is automatic - if caller's phone doesn't match booking phone, inform them they need to call from the original number
 - Use update_booking to change appointment time, date, or service
 - Use cancel_booking to cancel appointments
+- If phone verification fails, explain: "For security, you'll need to call from the phone number used to make the original booking"
 - Never update/cancel without exact verification details🔒 SECURITY RULES:
 - NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
+- NEVER announce function calls or mention JSON parameters to customers
+- NEVER say things like "Let me check availability" or "I'm calling the booking function"
+- Execute all functions silently in the background
+- Use get_day_of_week function silently to verify dates without announcing - just say the correct day naturally in conversation
 
 🔄 SAME-CALL OPERATIONS (CRITICAL):
 - If a customer JUST made a booking in this same call and immediately wants to update/cancel it, DO NOT ask for their name, date, or time again
@@ -144,6 +165,59 @@ Be friendly and use functions when needed. When you say you'll check availabilit
  * Get available functions for the AI agent
  * @returns {Array} Array of function definitions
  */
+/**
+ * Check if a requested time is within business hours
+ * @param {Object} businessConfig - Business configuration object
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @param {string} time - Time in HH:MM format (24-hour)
+ * @returns {Object} { isWithinHours: boolean, message?: string }
+ */
+export function isWithinBusinessHours(date, time, businessConfig) {
+  const businessHours = businessConfig.config?.business_hours;
+  
+  if (!businessHours) {
+    // If no business hours configured, allow all times
+    return { isWithin: true };
+  }
+
+  try {
+    // Parse the date using UK date utilities to get day of week
+    const parsedDate = typeof date === 'string' ? parseISODate(date) : date;
+    const dayName = getDayOfWeekName(parsedDate).toLowerCase();
+    
+    const dayHours = businessHours[dayName];
+    
+    if (!dayHours || !dayHours.open || !dayHours.close) {
+      return { 
+        isWithin: false, 
+        message: `We're closed on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s` 
+      };
+    }
+    
+    // Convert times to minutes for comparison
+    const [requestHour, requestMin] = time.split(':').map(Number);
+    const requestMinutes = requestHour * 60 + requestMin;
+    
+    const [openHour, openMin] = dayHours.open.split(':').map(Number);
+    const openMinutes = openHour * 60 + openMin;
+    
+    const [closeHour, closeMin] = dayHours.close.split(':').map(Number);
+    const closeMinutes = closeHour * 60 + closeMin;
+    
+    if (requestMinutes < openMinutes || requestMinutes >= closeMinutes) {
+      return {
+        isWithin: false,
+        message: `We're open ${dayHours.open}-${dayHours.close} on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s`
+      };
+    }
+    
+    return { isWithin: true };
+  } catch (error) {
+    console.error('Error checking business hours:', error);
+    return { isWithin: true }; // Default to allowing if error
+  }
+}
+
 export function getAvailableFunctions() {
   return [
     {
@@ -162,6 +236,20 @@ export function getAvailableFunctions() {
         type: "object",
         properties: {},
         required: [],
+      },
+    },
+    {
+      name: "get_day_of_week",
+      description: "Get the day of the week for a given date. Use this to verify dates silently in the background without announcing to the customer.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Date in DD/MM/YYYY format (e.g., 11/09/2025)",
+          },
+        },
+        required: ["date"],
       },
     },
     {
