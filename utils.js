@@ -167,10 +167,10 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
 🔚 CALL ENDING:
 - To end the call, you MUST first say a polite, concluding farewell phrase.
-- Your absolute final action in the conversation MUST be to call the end_call function. There can be no more talking after this function is called
+- Your absolute final action in the conversation MUST be to call/run/trigger the end_call function for ending the call. There can be no more talking after this function is called
 - Example Farewell Sequence:
   - You say: "Thank you for calling [business name], have a great day!"
-  - You immediately call: end_call
+  - You immediately run/trigger: end_call function without actually saying it
 
 Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
 
@@ -400,7 +400,7 @@ export function getAvailableFunctions() {
     {
       name: "end_call",
       description:
-        "Ends the phone call. This function MUST be the absolute last action in the conversation. Before calling this, you MUST say a final, polite farewell to the customer (e.g., 'Thanks for calling, have a great day!').",
+        "Ends the phone call. This function MUST be the absolute last action in the conversation after you said the farewell phrase. ",
       parameters: {
         type: "object",
         properties: {
