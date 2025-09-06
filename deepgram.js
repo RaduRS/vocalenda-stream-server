@@ -857,36 +857,21 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         const silenceDuration = Date.now() - silenceStartTime;
         console.log(`[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`);
         
-        if (silencePromptCount === 0 && silenceDuration >= 5000) {
-          // First prompt at 5 seconds
-          silencePromptCount = 1;
-          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_1: Sending first prompt`);
-          deepgramWs.send(JSON.stringify({
-            type: "ConversationText",
-            text: "Are you still there? I'm here to help with your appointment."
-          }));
-          scheduleNextSilenceCheck();
-        } else if (silencePromptCount === 1 && silenceDuration >= 10000) {
-          // Second prompt at 10 seconds
-          silencePromptCount = 2;
-          console.log(`[${timestamp}] 📢 SILENCE_PROMPT_2: Sending second prompt`);
-          deepgramWs.send(JSON.stringify({
-            type: "ConversationText",
-            text: "I'll wait just a moment longer in case you need anything."
-          }));
-          scheduleNextSilenceCheck();
-        } else if (silencePromptCount === 2 && silenceDuration >= 15000) {
-          // Auto-disconnect at 15 seconds
+        if (silenceDuration >= 15000) {
+          // Auto-disconnect at 15 seconds - send History message to trigger farewell
           console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s`);
           deepgramWs.send(JSON.stringify({
-            type: "ConversationText",
-            text: "I'll be here when you're ready. Have a great day! I'll end this call now.",
-            functions: [{
-              name: "end_call",
-              arguments: { reason: "silence timeout" }
-            }]
+            type: "History",
+            role: "user",
+            content: "[SYSTEM: User has been silent for 15 seconds, please say goodbye and end the call]"
           }));
-          // No need for setTimeout - function call is included in the same message
+          // Clear silence tracking since we're ending
+          silenceStartTime = null;
+          silencePromptCount = 0;
+          if (silenceTimeout) {
+            clearTimeout(silenceTimeout);
+            silenceTimeout = null;
+          }
         } else if (silenceDuration < 15000) {
           // Continue checking
           scheduleNextSilenceCheck();
