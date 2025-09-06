@@ -862,7 +862,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           silencePromptCount = 1;
           console.log(`[${timestamp}] 📢 SILENCE_PROMPT_1: Sending first prompt`);
           deepgramWs.send(JSON.stringify({
-            type: "Speak",
+            type: "ConversationText",
             text: "Are you still there? I'm here to help with your appointment."
           }));
           scheduleNextSilenceCheck();
@@ -871,7 +871,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           silencePromptCount = 2;
           console.log(`[${timestamp}] 📢 SILENCE_PROMPT_2: Sending second prompt`);
           deepgramWs.send(JSON.stringify({
-            type: "Speak",
+            type: "ConversationText",
             text: "I'll wait just a moment longer in case you need anything."
           }));
           scheduleNextSilenceCheck();
@@ -879,19 +879,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           // Auto-disconnect at 15 seconds
           console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s`);
           deepgramWs.send(JSON.stringify({
-            type: "Speak",
-            text: "I'll be here when you're ready. Have a great day!"
+            type: "ConversationText",
+            text: "I'll be here when you're ready. Have a great day! I'll end this call now.",
+            functions: [{
+              name: "end_call",
+              arguments: { reason: "silence timeout" }
+            }]
           }));
-          // End call after farewell message
-          setTimeout(() => {
-            deepgramWs.send(JSON.stringify({
-              type: "FunctionCallRequest",
-              functions: [{
-                name: "end_call",
-                arguments: JSON.stringify({ reason: "silence timeout" })
-              }]
-            }));
-          }, 3000); // Wait 3 seconds for farewell to complete
+          // No need for setTimeout - function call is included in the same message
         } else if (silenceDuration < 15000) {
           // Continue checking
           scheduleNextSilenceCheck();
