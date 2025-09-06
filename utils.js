@@ -55,6 +55,12 @@ export function generateSystemPrompt(businessConfig, callContext) {
 - ALWAYS convert customer's 12-hour time requests to 24-hour format before checking availability
 - If "13:30" is in available slots, then 1:30 PM IS available - never say it's not available
 
+⏰ TIME DISPLAY RULES:
+- NEVER say times like "seventeen hundred" or "seventeen o'clock" - always use 12-hour format when speaking
+- Say "5 PM" instead of "17:00" when talking to customers
+- Convert 24-hour format to natural 12-hour format for customer communication
+- Example: "17:00" becomes "5 PM", "13:30" becomes "1:30 PM"
+
 BUSINESS: ${business.name}`;
   if (business.address) prompt += ` | ${business.address}`;
   if (business.phone_number) prompt += ` | ${business.phone_number}`;
@@ -77,7 +83,7 @@ BUSINESS: ${business.name}`;
       }
       prompt += `,`;
     });
-    prompt += `\n\n📋 STAFF BOOKING NOTES:\n- Customers can request specific staff members by name\n- If no preference is mentioned, any available staff member can provide the service\n- Always mention available staff when discussing services if customers ask`;
+    prompt += `\n\n📋 STAFF BOOKING NOTES:\n- Customers can request specific staff members by name\n- If no preference is mentioned, any available staff member can provide the service\n- NEVER ask about staff preferences unless customer specifically mentions wanting a particular staff member\n- Only discuss staff options if customer asks about specific staff members`;
   }
 
   // Add business hours information if available
@@ -149,10 +155,17 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
 🔚 CALL ENDING:
 - AFTER completing any booking, cancellation, or update, ALWAYS ask: "Is there anything else I can help you with today?"
-- When customer says "No", "That's it", "Nothing else", "Bye", "Goodbye", etc., respond with a warm farewell
-- ALWAYS say something like "Thank you for calling [business name]! Have a wonderful day!" or "Thanks for choosing [business name]! Take care!" BEFORE ending
-- THEN use the end_call function after your farewell message
-- Never end abruptly without a proper goodbye
+- When customer says "Thanks", "Bye", "Goodbye", "Thank you", etc., respond with a warm farewell message FIRST
+- Say something like "Thank you for calling [business name]! Have a wonderful day!" or "Thanks for choosing [business name]! Take care!"
+- THEN immediately use the end_call function after your farewell message
+- Always provide a proper goodbye before ending the call
+
+🔇 SILENCE HANDLING:
+- Track silence duration using Deepgram's utterance_end events
+- After 5 seconds of silence: "Are you still there? I'm here to help with your appointment."
+- After another 5 seconds of silence (10 seconds total): "I'll wait just a moment longer in case you need anything."
+- After another 5 seconds of silence (15 seconds total): "I'll be here when you're ready. Have a great day!" then immediately use end_call()
+- Reset silence timer whenever user speaks
 
 Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
 
