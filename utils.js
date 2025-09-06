@@ -2,7 +2,12 @@
  * Utility functions and constants for the Vocalenda Stream Server
  */
 
-import { formatISODate, getCurrentUKDateTime, getDayOfWeekName, parseISODate } from "./dateUtils.js";
+import {
+  formatISODate,
+  getCurrentUKDateTime,
+  getDayOfWeekName,
+  parseISODate,
+} from "./dateUtils.js";
 
 /**
  * Get today's date in YYYY-MM-DD format
@@ -79,7 +84,7 @@ BUSINESS: ${business.name}`;
     staffMembers.forEach((staff) => {
       prompt += ` ${staff.name}`;
       if (staff.specialties && staff.specialties.length > 0) {
-        prompt += ` (${staff.specialties.join(', ')})`;
+        prompt += ` (${staff.specialties.join(", ")})`;
       }
       prompt += `,`;
     });
@@ -90,13 +95,20 @@ BUSINESS: ${business.name}`;
   const businessHours = businessConfig.config?.business_hours;
   if (businessHours) {
     prompt += `\n\n🕐 BUSINESS HOURS:`;
-    if (businessHours.monday) prompt += ` Mon: ${businessHours.monday.open}-${businessHours.monday.close}`;
-    if (businessHours.tuesday) prompt += ` Tue: ${businessHours.tuesday.open}-${businessHours.tuesday.close}`;
-    if (businessHours.wednesday) prompt += ` Wed: ${businessHours.wednesday.open}-${businessHours.wednesday.close}`;
-    if (businessHours.thursday) prompt += ` Thu: ${businessHours.thursday.open}-${businessHours.thursday.close}`;
-    if (businessHours.friday) prompt += ` Fri: ${businessHours.friday.open}-${businessHours.friday.close}`;
-    if (businessHours.saturday) prompt += ` Sat: ${businessHours.saturday.open}-${businessHours.saturday.close}`;
-    if (businessHours.sunday) prompt += ` Sun: ${businessHours.sunday.open}-${businessHours.sunday.close}`;
+    if (businessHours.monday)
+      prompt += ` Mon: ${businessHours.monday.open}-${businessHours.monday.close}`;
+    if (businessHours.tuesday)
+      prompt += ` Tue: ${businessHours.tuesday.open}-${businessHours.tuesday.close}`;
+    if (businessHours.wednesday)
+      prompt += ` Wed: ${businessHours.wednesday.open}-${businessHours.wednesday.close}`;
+    if (businessHours.thursday)
+      prompt += ` Thu: ${businessHours.thursday.open}-${businessHours.thursday.close}`;
+    if (businessHours.friday)
+      prompt += ` Fri: ${businessHours.friday.open}-${businessHours.friday.close}`;
+    if (businessHours.saturday)
+      prompt += ` Sat: ${businessHours.saturday.open}-${businessHours.saturday.close}`;
+    if (businessHours.sunday)
+      prompt += ` Sun: ${businessHours.sunday.open}-${businessHours.sunday.close}`;
     prompt += `\n\n⚠️ BUSINESS HOURS VALIDATION:\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
   }
 
@@ -154,10 +166,11 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - This creates a seamless experience for immediate changes after booking
 
 🔚 CALL ENDING:
-- AFTER completing any booking, cancellation, or update, ALWAYS ask: "Is there anything else I can help you with today?"
-- Only end the call when customer clearly indicates they're done ("No", "That's it", "Nothing else", "Goodbye", etc.)
-- When ending, say a polite farewell like "Thank you for calling [business name]! Have a great day!" THEN use end_call function
-- Don't keep talking after calling end_call
+- To end the call, you MUST first say a polite, concluding farewell phrase.
+- Your absolute final action in the conversation MUST be to call the end_call function. There can be no more talking after this function is called
+- Example Farewell Sequence:
+  - You say: "Thank you for calling [business name], have a great day!"
+  - You immediately call: end_call
 
 Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
 
@@ -179,7 +192,7 @@ Be friendly and use functions when needed. When you say you'll check availabilit
  */
 export function isWithinBusinessHours(date, time, businessConfig) {
   const businessHours = businessConfig.config?.business_hours;
-  
+
   if (!businessHours) {
     // If no business hours configured, allow all times
     return { isWithin: true };
@@ -187,38 +200,42 @@ export function isWithinBusinessHours(date, time, businessConfig) {
 
   try {
     // Parse the date using UK date utilities to get day of week
-    const parsedDate = typeof date === 'string' ? parseISODate(date) : date;
+    const parsedDate = typeof date === "string" ? parseISODate(date) : date;
     const dayName = getDayOfWeekName(parsedDate).toLowerCase();
-    
+
     const dayHours = businessHours[dayName];
-    
+
     if (!dayHours || !dayHours.open || !dayHours.close) {
-      return { 
-        isWithin: false, 
-        message: `We're closed on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s` 
+      return {
+        isWithin: false,
+        message: `We're closed on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
       };
     }
-    
+
     // Convert times to minutes for comparison
-    const [requestHour, requestMin] = time.split(':').map(Number);
+    const [requestHour, requestMin] = time.split(":").map(Number);
     const requestMinutes = requestHour * 60 + requestMin;
-    
-    const [openHour, openMin] = dayHours.open.split(':').map(Number);
+
+    const [openHour, openMin] = dayHours.open.split(":").map(Number);
     const openMinutes = openHour * 60 + openMin;
-    
-    const [closeHour, closeMin] = dayHours.close.split(':').map(Number);
+
+    const [closeHour, closeMin] = dayHours.close.split(":").map(Number);
     const closeMinutes = closeHour * 60 + closeMin;
-    
+
     if (requestMinutes < openMinutes || requestMinutes >= closeMinutes) {
       return {
         isWithin: false,
-        message: `We're open ${dayHours.open}-${dayHours.close} on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}s`
+        message: `We're open ${dayHours.open}-${dayHours.close} on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
       };
     }
-    
+
     return { isWithin: true };
   } catch (error) {
-    console.error('Error checking business hours:', error);
+    console.error("Error checking business hours:", error);
     return { isWithin: true }; // Default to allowing if error
   }
 }
@@ -236,7 +253,8 @@ export function getAvailableFunctions() {
     },
     {
       name: "get_staff_members",
-      description: "Get list of available staff members who can provide services",
+      description:
+        "Get list of available staff members who can provide services",
       parameters: {
         type: "object",
         properties: {},
@@ -245,7 +263,8 @@ export function getAvailableFunctions() {
     },
     {
       name: "get_day_of_week",
-      description: "Get the day of the week for a given date. Use this to verify dates silently in the background without announcing to the customer.",
+      description:
+        "Get the day of the week for a given date. Use this to verify dates silently in the background without announcing to the customer.",
       parameters: {
         type: "object",
         properties: {
@@ -381,7 +400,7 @@ export function getAvailableFunctions() {
     {
       name: "end_call",
       description:
-        "End the phone call when the conversation has naturally concluded. Use this when the customer indicates they are finished (saying goodbye, thanking you, or expressing satisfaction with the service).",
+        "Ends the phone call. This function MUST be the absolute last action in the conversation. Before calling this, you MUST say a final, polite farewell to the customer (e.g., 'Thanks for calling, have a great day!').",
       parameters: {
         type: "object",
         properties: {
