@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { validateConfig } from "./config.js";
-import { handleFunctionCall } from "./functionHandlers.js";
+import { handleFunctionCall, endCall } from "./functionHandlers.js";
 
 // Get configuration
 const config = validateConfig();
@@ -847,6 +847,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     silencePromptCount = 0;
     console.log(`[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`);
     
+    // Capture callSid for use in timeout closure
+    const currentCallSid = context.callSid;
+    
     // Set up silence detection timeouts
     const scheduleNextSilenceCheck = () => {
       if (silenceTimeout) clearTimeout(silenceTimeout);
@@ -864,6 +867,17 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             type: "InjectAgentMessage",
             content: "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!"
           }));
+          
+          // Wait a moment for the agent to speak, then end the call
+          setTimeout(async () => {
+            console.log(`[${timestamp}] 📞 ENDING_CALL: Terminating call after silence timeout`);
+            if (currentCallSid) {
+              await endCall(currentCallSid, { reason: "silence timeout - auto disconnect" });
+            } else {
+              console.log(`[${timestamp}] ⚠️ No callSid available for endCall`);
+            }
+          }, 4000); // Wait 4 seconds for agent to finish speaking
+          
           // Clear silence tracking since we're ending
           silenceStartTime = null;
           silencePromptCount = 0;
