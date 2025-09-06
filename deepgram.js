@@ -865,14 +865,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 10s`);
           deepgramWs.send(JSON.stringify({
             type: "InjectAgentMessage",
-            content: "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!"
+            content: "I notice you've been quiet for a while. Thank you for calling!"
           }));
           
           // Wait a moment for the agent to speak, then end the call
           setTimeout(async () => {
             console.log(`[${timestamp}] 📞 ENDING_CALL: Terminating call after silence timeout`);
             if (currentCallSid) {
-              await endCall(currentCallSid, { reason: "silence timeout - auto disconnect" });
+              await endCall(currentCallSid, { reason: "silence timeout - auto disconnect" }, context.deepgramWs, context.businessConfig);
             } else {
               console.log(`[${timestamp}] ⚠️ No callSid available for endCall`);
             }

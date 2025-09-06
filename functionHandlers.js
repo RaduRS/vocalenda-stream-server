@@ -157,7 +157,7 @@ export async function handleFunctionCall(
         break;
 
       case "end_call":
-        result = await endCall(callSid, parameters);
+        result = await endCall(callSid, parameters, deepgramWs, businessConfig);
         break;
 
       case "get_day_of_week":
@@ -835,9 +835,10 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
  * End the current Twilio call
  * @param {string} callSid - The Twilio call SID to terminate
  * @param {Object} params - Parameters including reason for ending the call
+ * @param {WebSocket} deepgramWs - Optional Deepgram WebSocket for farewell message
  * @returns {Object} Result of call termination or error
  */
-export async function endCall(callSid, params) {
+export async function endCall(callSid, params, deepgramWs = null, businessConfig = null) {
   try {
     console.log(
       "📞 endCall called with params:",
@@ -850,6 +851,23 @@ export async function endCall(callSid, params) {
     if (!callSid) {
       console.error("❌ No callSid available to end call");
       return { error: "Call ID not available" };
+    }
+
+    // Send farewell message before ending call if Deepgram connection is available
+    if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+      console.log("👋 Sending farewell message before ending call");
+      
+      // Create dynamic farewell message with business name
+      const businessName = businessConfig?.business_name || "us";
+      const farewellMessage = `Thank you for calling ${businessName}. Have a wonderful day and goodbye!`;
+      
+      deepgramWs.send(JSON.stringify({
+        type: "InjectAgentMessage",
+        content: farewellMessage
+      }));
+      
+      // Wait for the agent to speak the farewell message
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     // Initialize Twilio client
