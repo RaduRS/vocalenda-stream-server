@@ -857,13 +857,12 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         const silenceDuration = Date.now() - silenceStartTime;
         console.log(`[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`);
         
-        if (silenceDuration >= 15000) {
-          // Auto-disconnect at 15 seconds - send History message to trigger farewell
+        if (silenceDuration >= 10000) {
+          // Auto-disconnect at 10 seconds - send InjectUserMessage to trigger farewell
           console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s`);
           deepgramWs.send(JSON.stringify({
-            type: "History",
-            role: "user",
-            content: "[SYSTEM: User has been silent for 15 seconds, please say goodbye and end the call]"
+            type: "InjectUserMessage",
+            text: "I need to go now, please say goodbye and end the call."
           }));
           // Clear silence tracking since we're ending
           silenceStartTime = null;
