@@ -8,7 +8,9 @@ import {
   convert12to24Hour,
   UK_TIMEZONE,
   formatISODate,
+  getDayOfWeekNumber,
 } from "./dateUtils.js";
+import { isWithinBusinessHours } from "./utils.js";
 
 const config = getConfig();
 
@@ -160,11 +162,16 @@ export async function handleFunctionCall(
 
       case "get_day_of_week":
         try {
+          console.log("📅 Getting day of week for:", parameters.date);
           const parsedDate = parseUKDate(parameters.date);
           const dayName = getDayOfWeekName(parsedDate);
+          const dayNumber = getDayOfWeekNumber(parsedDate);
+          
+          console.log(`✅ ${parameters.date} is a ${dayName}`);
           result = {
             date: parameters.date,
             day_of_week: dayName,
+            day_number: dayNumber,
             formatted: `${dayName}, ${parsedDate.toLocaleDateString("en-GB", {
               day: "numeric",
               month: "long",
@@ -172,6 +179,7 @@ export async function handleFunctionCall(
             })}`,
           };
         } catch (error) {
+          console.error("❌ Error getting day of week:", error);
           result = {
             error: "Invalid date format. Please use DD/MM/YYYY format.",
           };
@@ -269,6 +277,25 @@ export async function getAvailableSlots(businessConfig, params) {
     if (!business?.google_calendar_id) {
       console.error("❌ No Google Calendar connected for business");
       return { error: "Calendar not connected" };
+    }
+
+    // Check if the requested date falls within business operating days
+    // This uses the proper UK date parsing and business hours validation
+    try {
+      const parsedDate = parseISODate(date);
+      const businessHoursCheck = isWithinBusinessHours(parsedDate, '09:00', businessConfig);
+      
+      if (!businessHoursCheck.isWithin) {
+        console.log(`📅 Business closed: ${businessHoursCheck.message}`);
+        return { 
+          slots: [], 
+          message: businessHoursCheck.message 
+        };
+      }
+      console.log(`📅 Business open on ${getDayOfWeekName(parsedDate)}`);
+    } catch (error) {
+      console.error('Error checking business hours:', error);
+      // Continue with normal flow if error
     }
 
     // Get service details and duration
@@ -642,6 +669,11 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       return { error: "Phone verification required for updates" };
     }
 
+    // Enhanced phone verification message for different numbers
+    console.log(`📞 Caller phone: ${callerPhone}`);
+    console.log(`👤 Customer: ${customerNameToUse}`);
+    console.log(`📅 Booking: ${currentDateToUse} at ${currentTimeToUse}`);
+
     // Prepare request body with only defined values
     const requestBody = {
       business_id: business.id,
@@ -749,6 +781,11 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
       console.error("❌ No caller phone available for verification");
       return { error: "Phone verification required for cancellations" };
     }
+
+    // Enhanced phone verification message for different numbers
+    console.log(`📞 Caller phone: ${callerPhone}`);
+    console.log(`👤 Customer: ${customerNameToUse}`);
+    console.log(`📅 Booking: ${dateToUse} at ${timeToUse}`);
 
     // Call the internal Next.js API to cancel the booking
     const response = await fetch(
