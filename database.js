@@ -93,4 +93,77 @@ export const db = {
 
     return data || [];
   },
+
+  /**
+   * Log an incoming call
+   */
+  async logIncomingCall(businessId, callerPhone, businessPhone, twilioCallSid) {
+    const { data, error } = await supabase
+      .from("call_logs")
+      .insert({
+        business_id: businessId,
+        caller_phone: callerPhone,
+        business_phone: businessPhone,
+        twilio_call_sid: twilioCallSid,
+        status: "incoming",
+        started_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to log incoming call:", error);
+      throw new Error(`Failed to log incoming call: ${error.message}`);
+    }
+
+    return data;
+  },
+
+  /**
+   * Update call status and end time
+   */
+  async updateCallStatus(
+    twilioCallSid,
+    status,
+    endedAt = null,
+    duration = null
+  ) {
+    const updates = { status };
+    if (endedAt) updates.ended_at = endedAt;
+    if (duration !== null) updates.duration_seconds = duration;
+
+    const { data, error } = await supabase
+      .from("call_logs")
+      .update(updates)
+      .eq("twilio_call_sid", twilioCallSid)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to update call status:", error);
+      throw new Error(`Failed to update call status: ${error.message}`);
+    }
+
+    return data;
+  },
+
+  /**
+   * Update call with customer information
+   */
+  async updateCallCustomer(twilioCallSid, customerName) {
+    const { data, error } = await supabase
+      .from("call_logs")
+      .update({ customer_name: customerName })
+      .eq("twilio_call_sid", twilioCallSid)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to update call customer:", error);
+      // Don't throw error for customer name updates as it's not critical
+      return null;
+    }
+
+    return data;
+  },
 };
