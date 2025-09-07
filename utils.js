@@ -166,9 +166,13 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 - This creates a seamless experience for immediate changes after booking
 
 🔚 CALL ENDING:
-- To end the call, you MUST first say a polite, concluding farewell phrase.
-- Your absolute final action in the conversation MUST be to call/run/trigger the end_call function for ending the call. There can be no more talking after this function is called
+- ONLY end the call when the customer explicitly indicates they want to end the conversation (e.g., "goodbye", "that's all", "thank you, bye")
+- NEVER automatically end the call after completing a booking - always ask if there's anything else you can help with
+- After booking completion, say: "Your appointment is confirmed! Is there anything else I can help you with today?"
+- To end the call, you MUST first say a polite, concluding farewell phrase
+- Your absolute final action in the conversation MUST be to call/run/trigger the end_call function for ending the call
 - Example Farewell Sequence:
+  - Customer says: "That's all, thank you!"
   - You say: "Thank you for calling [business name], have a great day!"
   - You immediately run/trigger: end_call function without actually saying it
 
@@ -400,7 +404,7 @@ export function getAvailableFunctions() {
     {
       name: "end_call",
       description:
-        "Ends the phone call. This function MUST be the absolute last action in the conversation after you said the farewell phrase. ",
+        "Say the farewell and then end the phone call. This function MUST be the absolute last action in the conversation after you said the farewell phrase. ",
       parameters: {
         type: "object",
         properties: {
