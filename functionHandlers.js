@@ -18,6 +18,22 @@ const config = getConfig();
 // In-memory session store for call context
 const callSessions = new Map();
 
+// Track processed function call IDs to prevent duplicates
+const processedFunctionCalls = new Set();
+const functionCallTimestamps = new Map();
+
+// Clean up old function call IDs every 5 minutes
+setInterval(() => {
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+  for (const [functionCallId, timestamp] of functionCallTimestamps.entries()) {
+    if (timestamp < fiveMinutesAgo) {
+      processedFunctionCalls.delete(functionCallId);
+      functionCallTimestamps.delete(functionCallId);
+      console.log(`🧹 CLEANUP: Removed old function call ID ${functionCallId}`);
+    }
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
+
 /**
  * Store session data for a call
  * @param {string} callSid - The Twilio call SID
@@ -92,7 +108,28 @@ export async function handleFunctionCall(
       "🔧 Function call received:",
       JSON.stringify(functionCallData, null, 2)
     );
-    const { function_name, parameters } = functionCallData;
+    const { function_name, parameters, function_call_id } = functionCallData;
+
+    // Check for duplicate create_booking requests
+    if (function_name === "create_booking" && function_call_id) {
+      if (processedFunctionCalls.has(function_call_id)) {
+        console.log(
+          `🚫 DUPLICATE BOOKING REQUEST DETECTED: ${function_call_id}`
+        );
+        console.log(`⏭️ Skipping duplicate create_booking call`);
+        return {
+          error:
+            "Duplicate booking request detected - booking already processed",
+        };
+      }
+      // Mark this function call as processed
+      processedFunctionCalls.add(function_call_id);
+      functionCallTimestamps.set(function_call_id, Date.now());
+      console.log(
+        `✅ TRACKING: Added function call ID ${function_call_id} to processed set`
+      );
+    }
+
     let result;
 
     switch (function_name) {
