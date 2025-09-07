@@ -3,8 +3,14 @@ import express from "express";
 import { createServer } from "http";
 import { validateConfig } from "./config.js";
 import { loadBusinessConfig } from "./businessConfig.js";
-import { initializeDeepgram, handleDeepgramMessage, cleanupAudioSystem, closeDeepgramConnection } from "./deepgram.js";
+import {
+  initializeDeepgram,
+  handleDeepgramMessage,
+  cleanupAudioSystem,
+  closeDeepgramConnection,
+} from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
+import { db } from "./database.js";
 
 // Validate configuration on startup
 const config = validateConfig();
@@ -76,6 +82,27 @@ wss.on("connection", async (ws, req) => {
             return;
           }
 
+          // Log the incoming call to database
+          try {
+            if (callSid && callerPhone && businessPhone) {
+              console.log(`📞 Logging incoming call: ${callSid}`);
+              await db.logIncomingCall(
+                businessId,
+                callerPhone,
+                businessPhone,
+                callSid
+              );
+              console.log(`✅ Call logged successfully: ${callSid}`);
+
+              // Update call status to in_progress
+              await db.updateCallStatus(callSid, "in_progress");
+              console.log(`📞 Call status updated to in_progress: ${callSid}`);
+            }
+          } catch (error) {
+            console.error("❌ Failed to log call:", error);
+            // Continue with call even if logging fails
+          }
+
           // Initialize Deepgram connection with proper error handling
           try {
             console.log("🔄 Initializing Deepgram connection...");
@@ -88,7 +115,7 @@ wss.on("connection", async (ws, req) => {
             });
             console.log("✅ Deepgram connection initialized successfully");
             console.log("Final readyState:", deepgramWs.readyState);
-            
+
             // Enable KeepAlive messages now that Twilio connection is active
             deepgramWs.setTwilioConnectionActive(true);
           } catch (error) {
@@ -190,6 +217,18 @@ wss.on("connection", async (ws, req) => {
 
         case "stop":
           console.log("Media stream stopped");
+          // Log call completion
+          try {
+            if (callSid) {
+              const endTime = new Date().toISOString();
+              console.log(`📞 Logging call completion: ${callSid}`);
+              await db.updateCallStatus(callSid, "completed", endTime);
+              console.log(`✅ Call completion logged: ${callSid}`);
+            }
+          } catch (error) {
+            console.error("❌ Failed to log call completion:", error);
+          }
+
           // Close the Deepgram connection when media stream stops to prevent timeouts
           if (deepgramWs) {
             closeDeepgramConnection(deepgramWs);
@@ -201,14 +240,24 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  ws.on("close", () => {
+  ws.on("close", async () => {
     console.log("Twilio WebSocket connection closed");
-    
+  // Log call completion if not already logged
+    try {
+      if (callSid) {
+        const endTime = new Date().toISOString();
+        console.log(`📞 Logging call completion on close: ${callSid}`);
+        await db.updateCallStatus(callSid, 'completed', endTime);
+        console.log(`✅ Call completion logged on close: ${callSid}`);
+      }
+    } catch (error) {
+      console.error("❌ Failed to log call completion on close:", error);
+    }
     // Close the Deepgram connection to prevent CLIENT_MESSAGE_TIMEOUT errors
     if (deepgramWs) {
       closeDeepgramConnection(deepgramWs);
     }
-    
+
     // Clear the call session if needed
     if (callSid) {
       clearCallSession(callSid);
