@@ -444,7 +444,7 @@ function addTranscriptEntry(speaker, text, timestamp) {
     conversationTranscript.push({
       speaker,
       text: text.trim(),
-      timestamp
+      timestamp,
     });
     console.log(`📝 Added transcript: [${speaker}] ${text.trim()}`);
   }
@@ -457,17 +457,22 @@ export async function saveConversationTranscript() {
   if (currentCallSid && conversationTranscript.length > 0) {
     try {
       const transcriptText = conversationTranscript
-        .map(entry => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
-        .join('\n');
-      
+        .map((entry) => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+        .join("\n");
+
       await db.updateCallTranscript(currentCallSid, transcriptText);
-      console.log(`✅ Saved transcript for call ${currentCallSid} (${conversationTranscript.length} entries)`);
-      
+      console.log(
+        `✅ Saved transcript for call ${currentCallSid} (${conversationTranscript.length} entries)`
+      );
+
       // Reset for next call
       conversationTranscript = [];
       currentCallSid = null;
     } catch (error) {
-      console.error(`❌ Failed to save transcript for call ${currentCallSid}:`, error);
+      console.error(
+        `❌ Failed to save transcript for call ${currentCallSid}:`,
+        error
+      );
     }
   }
 }
@@ -791,9 +796,13 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
     silenceStartTime = null;
     silencePromptCount = 0;
-    console.log(`[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`);
+    console.log(
+      `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
+    );
   } else if (deepgramData.type === "SpeechStarted") {
-    console.log(`[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`);
+    console.log(
+      `[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`
+    );
     // Reset silence tracking when user starts speaking
     if (silenceTimeout) {
       clearTimeout(silenceTimeout);
@@ -801,7 +810,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
     silenceStartTime = null;
     silencePromptCount = 0;
-    console.log(`[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`);
+    console.log(
+      `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
+    );
   } else if (deepgramData.type === "TtsAudio") {
     console.log(
       `[${timestamp}] 🔊 TTS_AUDIO: AI sending audio response (${
@@ -900,39 +911,52 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Start silence tracking after AI finishes speaking
     silenceStartTime = Date.now();
     silencePromptCount = 0;
-    console.log(`[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`);
-    
+    console.log(
+      `[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`
+    );
+
     // Capture callSid for use in timeout closure
     const currentCallSid = context.callSid;
-    
+
     // Set up silence detection timeouts
     const scheduleNextSilenceCheck = () => {
       if (silenceTimeout) clearTimeout(silenceTimeout);
-      
+
       silenceTimeout = setTimeout(() => {
         if (!silenceStartTime) return; // User started speaking, abort
-        
+
         const silenceDuration = Date.now() - silenceStartTime;
-        console.log(`[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`);
-        
+        console.log(
+          `[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`
+        );
+
         if (silenceDuration >= 10000) {
           // Auto-disconnect at 10 seconds - send InjectAgentMessage to trigger farewell
-          console.log(`[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 10s`);
-          deepgramWs.send(JSON.stringify({
-            type: "InjectAgentMessage",
-            content: "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!"
-          }));
-          
+          console.log(
+            `[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 10s`
+          );
+          deepgramWs.send(
+            JSON.stringify({
+              type: "InjectAgentMessage",
+              content:
+                "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!",
+            })
+          );
+
           // Wait a moment for the agent to speak, then end the call
           setTimeout(async () => {
-            console.log(`[${timestamp}] 📞 ENDING_CALL: Terminating call after silence timeout`);
+            console.log(
+              `[${timestamp}] 📞 ENDING_CALL: Terminating call after silence timeout`
+            );
             if (currentCallSid) {
-              await endCall(currentCallSid, { reason: "silence timeout - auto disconnect" });
+              await endCall(currentCallSid, {
+                reason: "silence timeout - auto disconnect",
+              });
             } else {
               console.log(`[${timestamp}] ⚠️ No callSid available for endCall`);
             }
           }, 4000); // Wait 4 seconds for agent to finish speaking
-          
+
           // Clear silence tracking since we're ending
           silenceStartTime = null;
           silencePromptCount = 0;
@@ -946,7 +970,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         }
       }, 1000); // Check every second
     };
-    
+
     scheduleNextSilenceCheck();
 
     // The pacer will automatically switch to sending silence once the buffer is empty.
@@ -970,12 +994,12 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
     console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
-    
+
     // Add AI response to transcript
     if (deepgramData.text && deepgramData.text.trim()) {
       addTranscriptEntry("AI", deepgramData.text, timestamp);
     }
-    
+
     // Check if AI is mentioning availability without calling function
     if (
       deepgramData.text &&
@@ -988,14 +1012,16 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       );
     }
   } else if (deepgramData.type === "AgentResponse") {
-    const responseText = deepgramData.response || deepgramData.text || "No response text";
-    console.log(
-      `[${timestamp}] 🤖 AGENT_RESPONSE:`,
-      responseText
-    );
-    
+    const responseText =
+      deepgramData.response || deepgramData.text || "No response text";
+    console.log(`[${timestamp}] 🤖 AGENT_RESPONSE:`, responseText);
+
     // Add AI response to transcript
-    if (responseText && responseText !== "No response text" && responseText.trim()) {
+    if (
+      responseText &&
+      responseText !== "No response text" &&
+      responseText.trim()
+    ) {
       addTranscriptEntry("AI", responseText, timestamp);
     }
   } else if (deepgramData.type === "FunctionCall") {
@@ -1007,10 +1033,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "Warning") {
     console.warn(`[${timestamp}] ⚠️ DEEPGRAM_WARNING:`, deepgramData);
   } else if (deepgramData.type === "ConversationText") {
-    console.log(
-      `[${timestamp}] 💭 CONVERSATION_TEXT:`,
-      deepgramData.text || deepgramData.content
-    );
+    const content = deepgramData.text || deepgramData.content;
+    console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, content);
+
+    // Add conversation text to transcript
+    if (content && content.trim()) {
+      const speaker = deepgramData.role === "user" ? "User" : "AI";
+      addTranscriptEntry(speaker, content, timestamp);
+    }
   } else if (deepgramData.type === "FunctionResponse") {
     console.log(`[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`);
     console.log(
