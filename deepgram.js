@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { validateConfig } from "./config.js";
 import { handleFunctionCall, endCall } from "./functionHandlers.js";
+import { db } from "./database.js";
 
 // Get configuration
 const config = validateConfig();
@@ -422,6 +423,55 @@ let silenceStartTime = null;
 let silencePromptCount = 0;
 let silenceTimeout = null;
 
+// Transcript accumulation
+let conversationTranscript = [];
+let currentCallSid = null;
+
+/**
+ * Initialize transcript tracking for a new call
+ */
+export function initializeTranscriptTracking(callSid) {
+  currentCallSid = callSid;
+  conversationTranscript = [];
+  console.log(`📝 Initialized transcript tracking for call: ${callSid}`);
+}
+
+/**
+ * Add a transcript entry to the conversation
+ */
+function addTranscriptEntry(speaker, text, timestamp) {
+  if (text && text.trim()) {
+    conversationTranscript.push({
+      speaker,
+      text: text.trim(),
+      timestamp
+    });
+    console.log(`📝 Added transcript: [${speaker}] ${text.trim()}`);
+  }
+}
+
+/**
+ * Save the accumulated transcript to the database
+ */
+export async function saveConversationTranscript() {
+  if (currentCallSid && conversationTranscript.length > 0) {
+    try {
+      const transcriptText = conversationTranscript
+        .map(entry => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+        .join('\n');
+      
+      await db.updateCallTranscript(currentCallSid, transcriptText);
+      console.log(`✅ Saved transcript for call ${currentCallSid} (${conversationTranscript.length} entries)`);
+      
+      // Reset for next call
+      conversationTranscript = [];
+      currentCallSid = null;
+    } catch (error) {
+      console.error(`❌ Failed to save transcript for call ${currentCallSid}:`, error);
+    }
+  }
+}
+
 /**
  * Initialize the persistent pacer that sends audio packets every 20ms
  */
@@ -723,6 +773,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       JSON.stringify(deepgramData, null, 2)
     );
 
+    // Add user speech to transcript
+    if (transcript && transcript.trim()) {
+      addTranscriptEntry("User", transcript, timestamp);
+    }
+
     // Enhanced detection for booking triggers
     if (transcript) {
       await handleTranscriptAnalysis(transcript, timestamp, state);
@@ -915,6 +970,12 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
     console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
+    
+    // Add AI response to transcript
+    if (deepgramData.text && deepgramData.text.trim()) {
+      addTranscriptEntry("AI", deepgramData.text, timestamp);
+    }
+    
     // Check if AI is mentioning availability without calling function
     if (
       deepgramData.text &&
@@ -927,10 +988,16 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       );
     }
   } else if (deepgramData.type === "AgentResponse") {
+    const responseText = deepgramData.response || deepgramData.text || "No response text";
     console.log(
       `[${timestamp}] 🤖 AGENT_RESPONSE:`,
-      deepgramData.response || deepgramData.text || "No response text"
+      responseText
     );
+    
+    // Add AI response to transcript
+    if (responseText && responseText !== "No response text" && responseText.trim()) {
+      addTranscriptEntry("AI", responseText, timestamp);
+    }
   } else if (deepgramData.type === "FunctionCall") {
     await handleFunctionCallMessage(deepgramData, timestamp, context);
   } else if (deepgramData.type === "FunctionCallRequest") {

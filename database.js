@@ -166,4 +166,23 @@ export const db = {
 
     return data;
   },
+
+  /**
+   * Update call transcript
+   */
+  async updateCallTranscript(twilioCallSid, transcript) {
+    const { data, error } = await supabase
+      .from("call_logs")
+      .update({ transcript })
+      .eq("twilio_call_sid", twilioCallSid)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to update call transcript:", error);
+      throw new Error(`Failed to update call transcript: ${error.message}`);
+    }
+
+    return data;
+  },
 };

@@ -8,6 +8,8 @@ import {
   handleDeepgramMessage,
   cleanupAudioSystem,
   closeDeepgramConnection,
+  initializeTranscriptTracking,
+  saveConversationTranscript,
 } from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
 import { db } from "./database.js";
@@ -97,6 +99,9 @@ wss.on("connection", async (ws, req) => {
               // Update call status to in_progress
               await db.updateCallStatus(callSid, "in_progress");
               console.log(`📞 Call status updated to in_progress: ${callSid}`);
+              
+              // Initialize transcript tracking
+              initializeTranscriptTracking(callSid);
             }
           } catch (error) {
             console.error("❌ Failed to log call:", error);
@@ -224,6 +229,9 @@ wss.on("connection", async (ws, req) => {
               console.log(`📞 Logging call completion: ${callSid}`);
               await db.updateCallStatus(callSid, "completed", endTime);
               console.log(`✅ Call completion logged: ${callSid}`);
+              
+              // Save conversation transcript
+              await saveConversationTranscript(callSid);
             }
           } catch (error) {
             console.error("❌ Failed to log call completion:", error);
@@ -249,6 +257,9 @@ wss.on("connection", async (ws, req) => {
         console.log(`📞 Logging call completion on close: ${callSid}`);
         await db.updateCallStatus(callSid, 'completed', endTime);
         console.log(`✅ Call completion logged on close: ${callSid}`);
+        
+        // Save conversation transcript
+        await saveConversationTranscript(callSid);
       }
     } catch (error) {
       console.error("❌ Failed to log call completion on close:", error);
