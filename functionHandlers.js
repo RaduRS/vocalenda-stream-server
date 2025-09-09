@@ -221,6 +221,10 @@ export async function handleFunctionCall(
         }
         break;
 
+      case "transfer_to_human":
+        result = await transferToHuman(businessConfig, parameters, callSid);
+        break;
+
       default:
         result = { error: "Unknown function" };
     }
@@ -967,6 +971,92 @@ export async function endCall(callSid, params, businessConfig = null) {
   } catch (error) {
     console.error("❌ Error ending call:", error);
     return { error: "Failed to end call" };
+  }
+}
+
+/**
+ * Transfer call to human representative
+ * @param {Object} businessConfig - The business configuration
+ * @param {Object} params - Parameters for the transfer
+ * @param {string} callSid - The Twilio call SID
+ * @returns {Object} Transfer result
+ */
+export async function transferToHuman(businessConfig, params, callSid) {
+  try {
+    console.log("📞 Processing human transfer request...");
+    console.log("📞 Transfer params:", JSON.stringify(params, null, 2));
+    console.log("📞 Call SID:", callSid);
+
+    // Get bypass phone number from business config
+    const bypassPhoneNumber = businessConfig.bypass_phone_number;
+    
+    if (!bypassPhoneNumber) {
+      console.error("❌ No bypass phone number configured for business");
+      return {
+        success: false,
+        error: "Human transfer not available - no phone number configured",
+        message: "I apologize, but human transfer is not currently available. Please try calling back later or leave a message."
+      };
+    }
+
+    console.log("📞 Bypass phone number found:", bypassPhoneNumber);
+
+    // Log the transfer request
+    console.log(`🔄 Initiating transfer from AI to human at ${bypassPhoneNumber}`);
+    
+    // Get caller information from session
+    const session = getCallSession(callSid);
+    const callerPhone = session?.callerPhone || 'Unknown';
+    
+    console.log(`📞 Caller: ${callerPhone} requesting human transfer`);
+
+    // Implement Twilio call transfer using REST API
+    if (!config.twilio.accountSid || !config.twilio.authToken) {
+      console.error('❌ Twilio credentials not configured');
+      return {
+        success: false,
+        error: 'Call transfer service is not properly configured',
+        message: 'I apologize, but call transfer is not properly configured. Please try calling back later.'
+      };
+    }
+    
+    // Create Twilio client
+    const twilio = (await import("twilio")).default(
+      config.twilio.accountSid,
+      config.twilio.authToken
+    );
+    
+    // Update the call to transfer it to the bypass number
+    // This will redirect the call to the new number
+    const siteUrl = config.nextjs.siteUrl;
+    const transferUrl = `${siteUrl}/api/voice/transfer?to=${encodeURIComponent(bypassPhoneNumber)}&reason=${encodeURIComponent(params.reason || 'Customer requested human assistance')}`;
+    
+    console.log(`📞 Transferring call to: ${transferUrl}`);
+    
+    const call = await twilio.calls(callSid)
+      .update({
+        url: transferUrl,
+        method: 'POST'
+      });
+    
+    console.log(`✅ Call ${callSid} successfully transferred to ${bypassPhoneNumber}`);
+    
+    return {
+      success: true,
+      transfer_number: bypassPhoneNumber,
+      message: "I'm connecting you to a human representative now. Please hold while I transfer your call.",
+      caller_phone: callerPhone,
+      reason: params.reason || "Customer requested human assistance",
+      twilio_call_sid: call.sid
+    };
+
+  } catch (error) {
+    console.error("❌ Error processing human transfer:", error);
+    return {
+      success: false,
+      error: error.message,
+      message: "I apologize, but I'm unable to transfer you to a human right now. Please try calling back later."
+    };
   }
 }
 

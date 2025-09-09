@@ -178,7 +178,15 @@ If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
 Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
 
-🚨 CRITICAL: NEVER output JSON, code blocks, or raw parameters. When you need to use a function, execute it directly from your available functions without showing any JSON or parameters to the customer. The system will handle the function execution automatically.`;
+🚨 CRITICAL: NEVER output JSON, code blocks, or raw parameters. When you need to use a function, execute it directly from your available functions without showing any JSON or parameters to the customer. The system will handle the function execution automatically.
+
+🤝 HUMAN HANDOFF PROTOCOL:
+- If a customer requests to speak to a human, manager, or real person, use the transfer_to_human function
+- If a customer has a complex issue that requires human intervention, offer to transfer them
+- Common transfer triggers: "Can I speak to someone?", "I need to talk to a human", "Transfer me to a manager", "This is too complicated"
+- When transferring, say: "I'll transfer you to one of our team members right away. Please hold on."
+- After saying the transfer message, immediately call the transfer_to_human function
+- NEVER refuse a human handoff request - always accommodate customer preferences`;
 
   return prompt;
 }
@@ -399,6 +407,22 @@ export function getAvailableFunctions() {
           },
         },
         required: [],
+      },
+    },
+    {
+      name: "transfer_to_human",
+      description:
+        "Transfer the customer to a human team member when they request to speak to someone or need human assistance",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description:
+              "Brief reason for the transfer (e.g., 'customer requested human', 'complex issue', 'manager requested')",
+          },
+        },
+        required: ["reason"],
       },
     },
     {
