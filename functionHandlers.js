@@ -988,7 +988,7 @@ export async function transferToHuman(businessConfig, params, callSid) {
     console.log("📞 Call SID:", callSid);
 
     // Get bypass phone number from business config
-    const bypassPhoneNumber = businessConfig.bypass_phone_number;
+    const bypassPhoneNumber = businessConfig.config?.bypass_phone_number;
     
     if (!bypassPhoneNumber) {
       console.error("❌ No bypass phone number configured for business");
