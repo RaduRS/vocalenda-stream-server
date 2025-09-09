@@ -468,17 +468,6 @@ export async function createBooking(businessConfig, params, callSid = null) {
     const session = getCallSession(callSid);
     const phoneToUse = customer_phone || session.callerPhone;
 
-    // Store customer info in session for future use
-    if (callSid && customer_name) {
-      setCallSession(callSid, {
-        customerName: customer_name,
-        lastBookingDate: date,
-        lastBookingTime: time,
-        lastServiceId: service_id,
-        lastServiceName: service.name,
-      });
-    }
-
     // Validate required parameters
     if (!customer_name || !service_id || !date || !time) {
       console.error("❌ Missing required booking parameters:", {
@@ -525,6 +514,17 @@ export async function createBooking(businessConfig, params, callSid = null) {
       service.id,
       ")"
     );
+
+    // Store customer info in session for future use
+    if (callSid && customer_name) {
+      setCallSession(callSid, {
+        customerName: customer_name,
+        lastBookingDate: date,
+        lastBookingTime: time,
+        lastServiceId: service_id,
+        lastServiceName: service.name,
+      });
+    }
 
     // Calculate start and end times with proper UK timezone handling
     const business = businessConfig.business;
