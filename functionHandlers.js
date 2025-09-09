@@ -527,6 +527,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
         lastBookingTime: time,
         lastServiceId: service_id,
         lastServiceName: service.name,
+        lastServiceDuration: service.duration_minutes,
       });
     }
 
@@ -662,6 +663,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
     if (callSid && result.appointmentId) {
       setCallSession(callSid, {
         lastAppointmentId: result.appointmentId,
+        lastServiceDuration: service.duration_minutes,
       });
       console.log(`📋 Stored appointment ID in session: ${result.appointmentId}`);
     }
@@ -934,8 +936,9 @@ export async function endCall(callSid, params, businessConfig = null) {
           customerName: session.customerName,
           appointmentDate: session.lastBookingDate,
           appointmentTime: session.lastBookingTime,
-          serviceName: session.lastServiceName
-        });
+          serviceName: session.lastServiceName,
+          serviceDuration: session.lastServiceDuration
+        }, businessConfig);
         console.log("✅ SMS confirmation sent successfully");
       } catch (smsError) {
         console.error("❌ Failed to send SMS confirmation:", smsError);
@@ -1065,7 +1068,7 @@ export async function transferToHuman(businessConfig, params, callSid) {
  * @param {Object} params - SMS parameters
  * @returns {Promise<void>}
  */
-async function sendSMSConfirmation(params) {
+async function sendSMSConfirmation(params, businessConfig) {
   const {
     businessId,
     customerPhone,
@@ -1073,11 +1076,23 @@ async function sendSMSConfirmation(params) {
     customerName,
     appointmentDate,
     appointmentTime,
-    serviceName
+    serviceName,
+    serviceDuration
   } = params;
 
-  // Create confirmation message
-  const message = `Hi ${customerName}, your appointment for ${serviceName} on ${appointmentDate} at ${appointmentTime} has been confirmed. Thank you for choosing us!`;
+  // Get custom SMS template from business config or use default
+  const template = businessConfig?.config?.sms_confirmation_template || 
+    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. See you soon! {business_phone}`;
+  
+  // Replace template variables with actual values
+  const message = template
+    .replace(/{customer_name}/g, customerName)
+    .replace(/{business_name}/g, businessConfig?.business?.name || 'our business')
+    .replace(/{date}/g, appointmentDate)
+    .replace(/{time}/g, appointmentTime)
+    .replace(/{service_name}/g, serviceName)
+    .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : '')
+    .replace(/{business_phone}/g, businessConfig?.business?.phone || '');
 
   // Call the SMS API
   const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
