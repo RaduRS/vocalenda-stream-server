@@ -12,7 +12,7 @@ import {
   saveConversationTranscript,
 } from "./deepgram.js";
 import { clearCallSession } from "./functionHandlers.js";
-import { db } from "./database.js";
+import { db, supabase } from "./database.js";
 
 // Validate configuration on startup
 const config = validateConfig();
@@ -83,6 +83,46 @@ wss.on("connection", async (ws, req) => {
             ws.close();
             return;
           }
+
+          // Check if Google Calendar is connected
+          if (!businessConfig.business?.google_calendar_id) {
+            console.log(`📅 No Google Calendar connected for business ${businessId}`);
+            console.log(`📞 Rejecting call ${callSid} - Google Calendar required`);
+            
+            // Log the call as rejected due to no calendar
+            try {
+              if (callSid && callerPhone && businessPhone) {
+                await db.logIncomingCall(
+                  businessId,
+                  callerPhone,
+                  businessPhone,
+                  callSid
+                );
+                await db.updateCallStatus(callSid, "failed");
+                 
+                 // Update ai_summary with rejection reason
+                 const { error: summaryError } = await supabase
+                   .from("call_logs")
+                   .update({ ai_summary: "Call rejected - Google Calendar not connected" })
+                   .eq("twilio_call_sid", callSid);
+                 
+                 if (summaryError) {
+                   console.error("❌ Failed to update call summary:", summaryError);
+                 }
+                 
+                 console.log(`📞 Call logged as rejected: ${callSid}`);
+              }
+            } catch (error) {
+              console.error("❌ Failed to log rejected call:", error);
+            }
+            
+            // Close the connection immediately
+            ws.close();
+            return;
+          }
+          
+          console.log(`📅 Google Calendar connected for business ${businessId}`);
+          console.log(`📞 Proceeding with call ${callSid}`);
 
           // Log the incoming call to database
           try {
