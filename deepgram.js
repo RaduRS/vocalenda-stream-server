@@ -915,8 +915,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       `[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`
     );
 
-    // Capture callSid for use in timeout closure
+    // Capture callSid and businessConfig for use in timeout closure
     const currentCallSid = context.callSid;
+    const currentBusinessConfig = context.businessConfig;
 
     // Set up silence detection timeouts
     const scheduleNextSilenceCheck = () => {
@@ -951,7 +952,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             if (currentCallSid) {
               await endCall(currentCallSid, {
                 reason: "silence timeout - auto disconnect",
-              });
+              }, currentBusinessConfig);
             } else {
               console.log(`[${timestamp}] ⚠️ No callSid available for endCall`);
             }

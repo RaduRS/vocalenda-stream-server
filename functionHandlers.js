@@ -192,7 +192,7 @@ export async function handleFunctionCall(
         break;
 
       case "end_call":
-        result = await endCall(callSid, parameters);
+        result = await endCall(callSid, parameters, businessConfig);
         break;
 
       case "get_day_of_week":
@@ -475,6 +475,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
         lastBookingDate: date,
         lastBookingTime: time,
         lastServiceId: service_id,
+        lastServiceName: service.name,
       });
     }
 
@@ -651,6 +652,14 @@ export async function createBooking(businessConfig, params, callSid = null) {
     } catch (error) {
       console.error("❌ Failed to update call log with customer name:", error);
       // Don't fail the booking if call logging fails
+    }
+
+    // Store appointment ID in session for SMS confirmation
+    if (callSid && result.appointmentId) {
+      setCallSession(callSid, {
+        lastAppointmentId: result.appointmentId,
+      });
+      console.log(`📋 Stored appointment ID in session: ${result.appointmentId}`);
     }
 
     const successMessage = `Appointment booked for ${customer_name} on ${date} at ${time} for ${service.name}`;
@@ -888,9 +897,10 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
  * End the current Twilio call
  * @param {string} callSid - The Twilio call SID to terminate
  * @param {Object} params - Parameters including reason for ending the call
+ * @param {Object} businessConfig - The business configuration for SMS sending
  * @returns {Object} Result of call termination or error
  */
-export async function endCall(callSid, params) {
+export async function endCall(callSid, params, businessConfig = null) {
   try {
     console.log(
       "📞 endCall called with params:",
@@ -903,6 +913,30 @@ export async function endCall(callSid, params) {
     if (!callSid) {
       console.error("❌ No callSid available to end call");
       return { error: "Call ID not available" };
+    }
+
+    // Get session data before clearing it
+    const session = getCallSession(callSid);
+    console.log("📋 Session data before ending call:", session);
+
+    // Check if there was a successful booking and send SMS confirmation
+    if (session.lastAppointmentId && session.callerPhone && businessConfig) {
+      try {
+        console.log("📱 Sending SMS confirmation for appointment:", session.lastAppointmentId);
+        await sendSMSConfirmation({
+          businessId: businessConfig.business.id,
+          customerPhone: session.callerPhone,
+          appointmentId: session.lastAppointmentId,
+          customerName: session.customerName,
+          appointmentDate: session.lastBookingDate,
+          appointmentTime: session.lastBookingTime,
+          serviceName: session.lastServiceName
+        });
+        console.log("✅ SMS confirmation sent successfully");
+      } catch (smsError) {
+        console.error("❌ Failed to send SMS confirmation:", smsError);
+        // Don't fail the call ending if SMS fails
+      }
     }
 
     // Initialize Twilio client
@@ -934,4 +968,48 @@ export async function endCall(callSid, params) {
     console.error("❌ Error ending call:", error);
     return { error: "Failed to end call" };
   }
+}
+
+/**
+ * Send SMS confirmation for appointment booking
+ * @param {Object} params - SMS parameters
+ * @returns {Promise<void>}
+ */
+async function sendSMSConfirmation(params) {
+  const {
+    businessId,
+    customerPhone,
+    appointmentId,
+    customerName,
+    appointmentDate,
+    appointmentTime,
+    serviceName
+  } = params;
+
+  // Create confirmation message
+  const message = `Hi ${customerName}, your appointment for ${serviceName} on ${appointmentDate} at ${appointmentTime} has been confirmed. Thank you for choosing us!`;
+
+  // Call the SMS API
+  const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/sms/send`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      businessId,
+      customerPhone,
+      message,
+      type: "confirmation",
+      appointmentId
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`SMS API error: ${response.status} ${errorText}`);
+  }
+
+  const result = await response.json();
+  console.log("📱 SMS confirmation result:", result);
 }
