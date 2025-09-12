@@ -943,7 +943,10 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     connectionState.audioManager.setStreamingState(false);
 
     // Clear any lingering timeout as a failsafe.
-    connectionState.audioManager.clearStreamTimeout();
+    if (connectionState.audioManager.audioStreamTimeout) {
+      clearTimeout(connectionState.audioManager.audioStreamTimeout);
+      connectionState.audioManager.audioStreamTimeout = null;
+    }
 
     // Start silence tracking after AI finishes speaking using connection state
     connectionState.silenceManager.startTracking(timestamp, context, deepgramWs);
@@ -1293,7 +1296,7 @@ async function handleFunctionCallRequestMessage(
   }
 
   // Resume silence timer after function processing
-  resumeSilenceTimer("Function processing completed", timestamp);
+  connectionState.silenceManager.resumeTimer("Function processing completed", timestamp);
 }
 
 // Utility functions are now imported from utils.js module
