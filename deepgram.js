@@ -3,9 +3,13 @@ import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { validateConfig } from "./config.js";
 import { handleFunctionCall, endCall } from "./functionHandlers.js";
 import { db } from "./database.js";
+import { ConnectionState } from "./managers/ConnectionState.js";
 
 // Get configuration
 const config = validateConfig();
+
+// Manager classes are now in separate files for better modularity
+// See ./managers/ directory for AudioStreamManager, SilenceDetectionManager, TranscriptManager, and ConnectionState
 
 /**
  * Initialize Deepgram Voice Agent connection
@@ -20,6 +24,10 @@ export async function initializeDeepgram(businessConfig, callContext) {
       "wss://agent.deepgram.com/v1/agent/converse",
       ["token", config.deepgram.apiKey]
     );
+
+    // Create isolated connection state for this WebSocket
+    const connectionState = new ConnectionState(callContext.callSid);
+    deepgramWs.connectionState = connectionState;
 
     deepgramWs.on("open", () => {
       console.log(
@@ -344,15 +352,23 @@ export async function initializeDeepgram(businessConfig, callContext) {
 
 /**
  * Export cleanup function for external use
+ * @param {WebSocket} deepgramWs - Deepgram WebSocket with connectionState
  */
-export function cleanupAudioSystem() {
+export function cleanupAudioSystem(deepgramWs) {
+  const connectionState = deepgramWs?.connectionState;
+  if (!connectionState) {
+    console.warn("⚠️ No connection state found for audio cleanup");
+    return;
+  }
+  
   // Don't cleanup the persistent pacer to maintain continuous audio flow
   // Just reset the audio buffer and streaming state
-  audioBuffer = Buffer.alloc(0);
-  isStreamingAudio = false;
-  if (audioStreamTimeout) {
-    clearTimeout(audioStreamTimeout);
-    audioStreamTimeout = null;
+  const audioManager = connectionState.audioManager;
+  audioManager.resetBuffer();
+  audioManager.setStreamingState(false);
+  if (audioManager.audioStreamTimeout) {
+    clearTimeout(audioManager.audioStreamTimeout);
+    audioManager.audioStreamTimeout = null;
   }
   // Keep streamSid and twilioWsRef to maintain the connection
   // This allows the pacer to continue sending silence between utterances
@@ -365,20 +381,23 @@ export function cleanupAudioSystem() {
 export function closeDeepgramConnection(deepgramWs) {
   console.log("🔌 Closing Deepgram connection and cleaning up resources");
 
-  // Clean up audio system
-  cleanupAudioSystem();
+  const connectionState = deepgramWs?.connectionState;
+  if (connectionState) {
+    // Clean up audio system
+    cleanupAudioSystem(deepgramWs);
 
-  // Clean up persistent pacer
-  cleanupPersistentPacer();
+    // Clean up persistent pacer
+    cleanupPersistentPacer(connectionState);
 
-  // Clear silence tracking
-  if (silenceTimeout) {
-    clearTimeout(silenceTimeout);
-    silenceTimeout = null;
+    // Clean up silence tracking using connection state
+    connectionState.silenceManager.cleanup();
+    console.log("🔇 Silence tracking cleaned up");
+
+    // Clean up all connection state
+    connectionState.cleanup();
+  } else {
+    console.warn("⚠️ No connection state found for cleanup");
   }
-  silenceStartTime = null;
-  silencePromptCount = 0;
-  console.log("🔇 Silence tracking cleaned up");
 
   // Clear KeepAlive interval if it exists
   if (deepgramWs && deepgramWs.keepAliveInterval) {
@@ -405,47 +424,8 @@ export function closeDeepgramConnection(deepgramWs) {
  * @param {Object} state - State object containing flags and timeouts
  * @returns {Promise<void>}
  */
-// Persistent pacer system for continuous audio flow
-let audioBuffer = Buffer.alloc(0); // Buffer for incoming audio data
-let isStreamingAudio = false;
-let audioStreamTimeout = null;
-let pacer = null; // Persistent 20ms interval timer
-let streamSid = null; // Store streamSid for pacer access
-let twilioWsRef = null; // Store Twilio WebSocket reference for pacer
-
-// Audio constants for μ-law format (8kHz)
-// Deepgram Voice Agent sends 960-byte chunks (120ms of 8kHz μ-law audio)
-const FRAME_SIZE = 960; // Match Deepgram's chunk size
-const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xff).toString("base64");
-
-// Silence tracking for auto-disconnect
-let silenceStartTime = null;
-let silencePromptCount = 0;
-let silenceTimeout = null;
-let silenceTimerPaused = false; // Track if silence timer is paused during agent processing
-
-// Helper functions for silence timer management
-function pauseSilenceTimer(reason, timestamp) {
-  silenceTimerPaused = true;
-  if (silenceTimeout) {
-    clearTimeout(silenceTimeout);
-    silenceTimeout = null;
-  }
-  console.log(`[${timestamp}] ⏸️ SILENCE_PAUSED: ${reason}`);
-}
-
-function resumeSilenceTimer(reason, timestamp) {
-  silenceTimerPaused = false;
-  // Only restart timer if we were tracking silence and agent finished speaking
-  if (silenceStartTime) {
-    console.log(`[${timestamp}] ▶️ SILENCE_RESUMED: ${reason}`);
-    // Don't restart the timer here - let AgentAudioDone handle it
-  } else {
-    console.log(`[${timestamp}] ▶️ SILENCE_TIMER_READY: ${reason}`);
-  }
-}
-
-// Transcript accumulation
+// Legacy global transcript tracking - kept for backward compatibility
+// New connections should use ConnectionState.transcriptManager instead
 let conversationTranscript = [];
 let currentCallSid = null;
 
@@ -474,17 +454,51 @@ function addTranscriptEntry(speaker, text, timestamp) {
 
 /**
  * Save the accumulated transcript to the database
+ * @param {string} callSid - The call SID to save transcript for
+ * @param {Object} deepgramWs - Optional Deepgram WebSocket with connectionState
  */
-export async function saveConversationTranscript() {
-  if (currentCallSid && conversationTranscript.length > 0) {
+export async function saveConversationTranscript(callSid = null, deepgramWs = null) {
+  // Try to use connection-specific transcript first
+  if (deepgramWs?.connectionState?.transcriptManager) {
+    const transcriptManager = deepgramWs.connectionState.transcriptManager;
+    const transcript = transcriptManager.getTranscript();
+    const targetCallSid = callSid || transcriptManager.getCallSid();
+    
+    if (targetCallSid && transcript.length > 0) {
+      try {
+        const transcriptText = transcript
+          .map((entry) => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+          .join("\n");
+
+        await db.updateCallTranscript(targetCallSid, transcriptText);
+        console.log(
+          `✅ Saved transcript for call ${targetCallSid} (${transcript.length} entries)`
+        );
+        
+        // Clear the transcript after saving
+        transcriptManager.clearTranscript();
+        return;
+      } catch (error) {
+        console.error(
+          `❌ Failed to save transcript for call ${targetCallSid}:`,
+          error
+        );
+        return;
+      }
+    }
+  }
+  
+  // Fallback to legacy global transcript (for backward compatibility)
+  const targetCallSid = callSid || currentCallSid;
+  if (targetCallSid && conversationTranscript.length > 0) {
     try {
       const transcriptText = conversationTranscript
         .map((entry) => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
         .join("\n");
 
-      await db.updateCallTranscript(currentCallSid, transcriptText);
+      await db.updateCallTranscript(targetCallSid, transcriptText);
       console.log(
-        `✅ Saved transcript for call ${currentCallSid} (${conversationTranscript.length} entries)`
+        `✅ Saved legacy transcript for call ${targetCallSid} (${conversationTranscript.length} entries)`
       );
 
       // Reset for next call
@@ -492,7 +506,7 @@ export async function saveConversationTranscript() {
       currentCallSid = null;
     } catch (error) {
       console.error(
-        `❌ Failed to save transcript for call ${currentCallSid}:`,
+        `❌ Failed to save legacy transcript for call ${targetCallSid}:`,
         error
       );
     }
@@ -501,46 +515,49 @@ export async function saveConversationTranscript() {
 
 /**
  * Initialize the persistent pacer that sends audio packets every 20ms
+ * @param {ConnectionState} connectionState - Connection-specific state
  */
-function initializePersistentPacer() {
-  if (pacer) {
-    clearInterval(pacer);
+function initializePersistentPacer(connectionState) {
+  const audioManager = connectionState.audioManager;
+  
+  if (audioManager.pacer) {
+    clearInterval(audioManager.pacer);
   }
 
   console.log(
     "🎵 Initializing persistent pacer for continuous audio flow (120ms intervals)"
   );
 
-  pacer = setInterval(() => {
+  audioManager.pacer = setInterval(() => {
     if (
-      !twilioWsRef ||
-      twilioWsRef.readyState !== WebSocket.OPEN ||
-      !streamSid
+      !audioManager.twilioWsRef ||
+      audioManager.twilioWsRef.readyState !== WebSocket.OPEN ||
+      !audioManager.streamSid
     ) {
       return;
     }
 
     let payload;
 
-    if (audioBuffer.length >= FRAME_SIZE) {
+    if (audioManager.audioBuffer.length >= audioManager.FRAME_SIZE) {
       // Send real audio if available
-      const frame = audioBuffer.slice(0, FRAME_SIZE);
-      audioBuffer = audioBuffer.slice(FRAME_SIZE);
+      const frame = audioManager.audioBuffer.slice(0, audioManager.FRAME_SIZE);
+      audioManager.audioBuffer = audioManager.audioBuffer.slice(audioManager.FRAME_SIZE);
       payload = frame.toString("base64");
     } else {
       // Send silence to keep the stream alive
-      payload = SILENCE_PAYLOAD;
+      payload = audioManager.SILENCE_PAYLOAD;
     }
 
     // Always send a media message to maintain continuous flow
     const audioMessage = {
       event: "media",
-      streamSid: streamSid,
+      streamSid: audioManager.streamSid,
       media: { payload: payload },
     };
 
     try {
-      twilioWsRef.send(JSON.stringify(audioMessage));
+      audioManager.twilioWsRef.send(JSON.stringify(audioMessage));
     } catch (error) {
       console.error("❌ Error sending audio packet in pacer:", error);
     }
@@ -551,11 +568,13 @@ function initializePersistentPacer() {
 
 /**
  * Clean up the persistent pacer
+ * @param {ConnectionState} connectionState - Connection-specific state
  */
-function cleanupPersistentPacer() {
-  if (pacer) {
-    clearInterval(pacer);
-    pacer = null;
+function cleanupPersistentPacer(connectionState) {
+  const audioManager = connectionState.audioManager;
+  if (audioManager.pacer) {
+    clearInterval(audioManager.pacer);
+    audioManager.pacer = null;
     console.log("🔇 Persistent pacer cleaned up");
   }
 }
@@ -568,13 +587,19 @@ export async function handleDeepgramMessage(
   streamSidParam,
   state
 ) {
-  // Store references for pacer access
-  streamSid = streamSidParam;
-  twilioWsRef = twilioWs;
+  // Get connection-specific state
+  const connectionState = deepgramWs.connectionState;
+  if (!connectionState) {
+    console.error("❌ No connection state found on deepgramWs");
+    return;
+  }
+
+  // Store references for pacer access in connection state
+  connectionState.audioManager.setStreamReferences(streamSidParam, twilioWs);
 
   // Initialize persistent pacer if not already running
-  if (!pacer && streamSid && twilioWs) {
-    initializePersistentPacer();
+  if (!connectionState.audioManager.pacer && streamSidParam && twilioWs) {
+    initializePersistentPacer(connectionState);
   }
 
   const {
@@ -653,22 +678,24 @@ export async function handleDeepgramMessage(
 
       // Feed audio buffer instead of sending directly (persistent pacer handles sending)
       try {
+        const audioManager = connectionState.audioManager;
+        
         // Mark that we're actively streaming audio
-        if (!isStreamingAudio) {
-          isStreamingAudio = true;
+        if (!audioManager.isStreamingAudio) {
+          audioManager.setStreamingState(true);
           console.log(
             `[${timestamp}] 🎵 Starting audio stream - feeding buffer`
           );
         }
 
         // Clear any existing timeout
-        if (audioStreamTimeout) {
-          clearTimeout(audioStreamTimeout);
+        if (audioManager.audioStreamTimeout) {
+          clearTimeout(audioManager.audioStreamTimeout);
         }
 
         // Add incoming audio to buffer instead of sending directly
         // Apply fade-in to first chunk of audio to prevent crackling at the beginning
-        if (!isStreamingAudio) {
+        if (!audioManager.isStreamingAudio) {
           // This is the first chunk of a new audio stream - apply fade-in
           const fadeInBuffer = Buffer.from(deepgramMessage);
           // Apply fade-in over first 240 samples (30ms) of first chunk
@@ -684,19 +711,19 @@ export async function handleDeepgramMessage(
               silenceValue - fadeRatio * (silenceValue - originalValue)
             );
           }
-          audioBuffer = Buffer.concat([audioBuffer, fadeInBuffer]);
-          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioBuffer.length})`);
+          audioManager.addAudioData(fadeInBuffer);
+          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioManager.audioBuffer.length})`);
         } else {
           // Normal audio chunk - add directly
-          audioBuffer = Buffer.concat([audioBuffer, deepgramMessage]);
-          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioBuffer.length})`);
+          audioManager.addAudioData(deepgramMessage);
+          // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioManager.audioBuffer.length})`);
         }
 
         // Set timeout to detect end of audio stream
-        audioStreamTimeout = setTimeout(() => {
-          if (isStreamingAudio) {
+        audioManager.audioStreamTimeout = setTimeout(() => {
+          if (audioManager.isStreamingAudio) {
             console.log(`[${timestamp}] 🔇 Audio stream ended (timeout)`);
-            isStreamingAudio = false;
+            audioManager.setStreamingState(false);
           }
         }, 500); // 500ms timeout to detect stream end
       } catch (error) {
@@ -735,7 +762,7 @@ export async function handleDeepgramMessage(
           twilioWs,
           deepgramWs,
           businessConfig,
-          streamSid,
+          streamSid: streamSidParam,
           callSid: state.callSid,
           callerPhone: state.callerPhone,
           state: {
@@ -773,6 +800,7 @@ export async function handleDeepgramMessage(
  */
 async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   const { twilioWs, deepgramWs, businessConfig, streamSid, state } = context;
+  const connectionState = deepgramWs.connectionState;
 
   if (deepgramData.type === "SettingsApplied") {
     // Deepgram is now ready to receive audio
@@ -800,8 +828,10 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       JSON.stringify(deepgramData, null, 2)
     );
 
-    // Add user speech to transcript
+    // Add user speech to transcript using connection state
     if (transcript && transcript.trim()) {
+      connectionState.addTranscriptEntry("User", transcript, timestamp);
+      // Also add to legacy global transcript for backward compatibility
       addTranscriptEntry("User", transcript, timestamp);
     }
 
@@ -811,14 +841,8 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
   } else if (deepgramData.type === "UserStartedSpeaking") {
     console.log(`[${timestamp}] 🎤 USER_STARTED_SPEAKING: User began speaking`);
-    // Reset silence tracking when user starts speaking
-    if (silenceTimeout) {
-      clearTimeout(silenceTimeout);
-      silenceTimeout = null;
-    }
-    silenceStartTime = null;
-    silencePromptCount = 0;
-    silenceTimerPaused = false; // Reset pause state when user speaks
+    // Reset silence tracking when user starts speaking using connection state
+    connectionState.silenceManager.resetTimer();
     console.log(
       `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
     );
@@ -826,14 +850,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(
       `[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`
     );
-    // Reset silence tracking when user starts speaking
-    if (silenceTimeout) {
-      clearTimeout(silenceTimeout);
-      silenceTimeout = null;
-    }
-    silenceStartTime = null;
-    silencePromptCount = 0;
-    silenceTimerPaused = false; // Reset pause state when user speaks
+    // Reset silence tracking when user starts speaking using connection state
+    connectionState.silenceManager.resetTimer();
+    console.log(
+      `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
+    );
     console.log(
       `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
     );
@@ -861,33 +882,30 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           `[${timestamp}] ⚠️ Very small audio chunk (${audioData.length} chars) - potential crackling risk`
         );
       }
-      // Mark that we're actively streaming audio
-      if (!isStreamingAudio) {
-        isStreamingAudio = true;
+      // Mark that we're actively streaming audio using connection state
+      if (!connectionState.audioManager.isStreamingAudio) {
+        connectionState.audioManager.setStreamingState(true);
         console.log(`[${timestamp}] 🎵 Starting audio stream`);
       }
 
       // Clear any existing timeout since we're getting new audio
-      if (audioStreamTimeout) {
-        clearTimeout(audioStreamTimeout);
-        audioStreamTimeout = null;
-      }
+      connectionState.audioManager.clearStreamTimeout();
 
       // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
       try {
         const audioData = Buffer.from(deepgramData.data, "base64");
-        audioBuffer = Buffer.concat([audioBuffer, audioData]);
+        connectionState.audioManager.addAudioData(audioData);
         console.log(
-          `[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${audioBuffer.length})`
+          `[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${connectionState.audioManager.audioBuffer.length})`
         );
 
         // Set a timeout to detect end of audio stream if no AgentAudioDone is received
-        audioStreamTimeout = setTimeout(() => {
-          if (isStreamingAudio) {
+        connectionState.audioManager.setStreamTimeout(() => {
+          if (connectionState.audioManager.isStreamingAudio) {
             console.log(
               `[${timestamp}] ⏰ Audio stream timeout - assuming end of audio`
             );
-            isStreamingAudio = false;
+            connectionState.audioManager.setStreamingState(false);
           }
         }, 1000); // 1 second timeout
       } catch (error) {
@@ -901,16 +919,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
 
       // If we receive empty audio but we're supposed to be streaming,
       // this might indicate an issue with the audio stream
-      if (isStreamingAudio) {
+      if (connectionState.audioManager.isStreamingAudio) {
         console.warn(
           `[${timestamp}] 🔍 Empty audio during active stream - checking stream health`
         );
 
         // Set a shorter timeout for empty audio to detect stream issues faster
-        if (audioStreamTimeout) {
-          clearTimeout(audioStreamTimeout);
-        }
-        audioStreamTimeout = setTimeout(() => {
+        connectionState.audioManager.clearStreamTimeout();
+        connectionState.audioManager.setStreamTimeout(() => {
           console.log(
             `[${timestamp}] 🔄 Resetting audio stream state due to empty audio`
           );
@@ -924,39 +940,26 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     );
 
     // While the pacer handles most of this, explicitly clearing the streaming state is good practice.
-    isStreamingAudio = false;
+    connectionState.audioManager.setStreamingState(false);
 
     // Clear any lingering timeout as a failsafe.
-    if (audioStreamTimeout) {
-      clearTimeout(audioStreamTimeout);
-      audioStreamTimeout = null;
-    }
+    connectionState.audioManager.clearStreamTimeout();
 
-    // Start silence tracking after AI finishes speaking (only if not paused)
-    if (!silenceTimerPaused) {
-      silenceStartTime = Date.now();
-      silencePromptCount = 0;
-      console.log(
-        `[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`
-      );
-    } else {
-      console.log(
-        `[${timestamp}] ⏸️ SILENCE_PAUSED: Not starting timer - agent still processing`
-      );
-    }
+    // Start silence tracking after AI finishes speaking using connection state
+    connectionState.silenceManager.startTracking(timestamp, context, deepgramWs);
 
     // Capture callSid and businessConfig for use in timeout closure
     const currentCallSid = context.callSid;
     const currentBusinessConfig = context.businessConfig;
 
-    // Set up silence detection timeouts
+    // Set up silence detection timeouts using connection state
     const scheduleNextSilenceCheck = () => {
-      if (silenceTimeout) clearTimeout(silenceTimeout);
+      connectionState.silenceManager.clearTimer();
 
-      silenceTimeout = setTimeout(() => {
-        if (!silenceStartTime || silenceTimerPaused) return; // User started speaking or timer paused, abort
+      connectionState.silenceManager.setTimeout(() => {
+        if (!connectionState.silenceManager.isTracking()) return; // User started speaking or timer paused, abort
 
-        const silenceDuration = Date.now() - silenceStartTime;
+        const silenceDuration = connectionState.silenceManager.getDuration();
         console.log(
           `[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`
         );
@@ -988,13 +991,8 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             }
           }, 4000); // Wait 4 seconds for agent to finish speaking
 
-          // Clear silence tracking since we're ending
-          silenceStartTime = null;
-          silencePromptCount = 0;
-          if (silenceTimeout) {
-            clearTimeout(silenceTimeout);
-            silenceTimeout = null;
-          }
+          // Clear silence tracking since we're ending using connection state
+          connectionState.silenceManager.cleanup();
         } else if (silenceDuration < 15000) {
           // Continue checking
           scheduleNextSilenceCheck();
@@ -1022,15 +1020,17 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       `[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`
     );
     
-    // Pause silence timer while agent is thinking
-    pauseSilenceTimer("Agent is thinking/processing", timestamp);
+    // Pause silence timer while agent is thinking using connection state
+    connectionState.silenceManager.pauseTimer("Agent is thinking/processing", timestamp);
   } else if (deepgramData.type === "TtsStart") {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
     console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
 
-    // Add AI response to transcript
+    // Add AI response to transcript using connection state
     if (deepgramData.text && deepgramData.text.trim()) {
+      connectionState.addTranscriptEntry("AI", deepgramData.text, timestamp);
+      // Also add to legacy global transcript for backward compatibility
       addTranscriptEntry("AI", deepgramData.text, timestamp);
     }
 
@@ -1050,12 +1050,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       deepgramData.response || deepgramData.text || "No response text";
     console.log(`[${timestamp}] 🤖 AGENT_RESPONSE:`, responseText);
 
-    // Add AI response to transcript
+    // Add AI response to transcript using connection state
     if (
       responseText &&
       responseText !== "No response text" &&
       responseText.trim()
     ) {
+      connectionState.addTranscriptEntry("AI", responseText, timestamp);
+      // Also add to legacy global transcript for backward compatibility
       addTranscriptEntry("AI", responseText, timestamp);
     }
   } else if (deepgramData.type === "FunctionCall") {
@@ -1232,8 +1234,9 @@ async function handleFunctionCallRequestMessage(
     state.setFunctionCallTimeout(null);
   }
 
-  // Pause silence timer during function processing
-  pauseSilenceTimer("Processing function calls", timestamp);
+  // Pause silence timer during function processing using connection state
+  const connectionState = context.deepgramWs.connectionState;
+  connectionState.silenceManager.pauseTimer("Processing function calls", timestamp);
 
   // Pause KeepAlive during function processing
   if (deepgramWs && deepgramWs.pauseKeepAlive) {
