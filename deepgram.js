@@ -961,8 +961,8 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           `[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`
         );
 
-        if (silenceDuration >= 10000) {
-          // Auto-disconnect at 10 seconds - send InjectAgentMessage to trigger farewell
+        if (silenceDuration >= 15000) {
+          // Auto-disconnect at 15 seconds - send InjectAgentMessage to trigger farewell
           console.log(
             `[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 10s`
           );
