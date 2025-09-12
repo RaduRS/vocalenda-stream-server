@@ -839,6 +839,17 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
   } else if (deepgramData.type === "UserStartedSpeaking") {
     console.log(`[${timestamp}] 🎤 USER_STARTED_SPEAKING: User began speaking`);
+    
+    // Handle barge-in: Clear Twilio audio queue when user starts speaking
+    if (twilioWs && streamSid && twilioWs.readyState === WebSocket.OPEN) {
+      const clearMessage = {
+        event: "clear",
+        streamSid: streamSid
+      };
+      twilioWs.send(JSON.stringify(clearMessage));
+      console.log(`[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`);
+    }
+    
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
     console.log(
@@ -848,11 +859,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(
       `[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`
     );
+    
+    // Handle barge-in: Clear Twilio audio queue when user starts speaking
+    if (twilioWs && streamSid && twilioWs.readyState === WebSocket.OPEN) {
+      const clearMessage = {
+        event: "clear",
+        streamSid: streamSid
+      };
+      twilioWs.send(JSON.stringify(clearMessage));
+      console.log(`[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`);
+    }
+    
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
-    console.log(
-      `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
-    );
     console.log(
       `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
     );
