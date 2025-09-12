@@ -711,11 +711,11 @@ export async function handleDeepgramMessage(
               silenceValue - fadeRatio * (silenceValue - originalValue)
             );
           }
-          audioManager.addAudioData(fadeInBuffer);
+          audioManager.appendToBuffer(fadeInBuffer);
           // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer with fade-in (total: ${audioManager.audioBuffer.length})`);
         } else {
           // Normal audio chunk - add directly
-          audioManager.addAudioData(deepgramMessage);
+          audioManager.appendToBuffer(deepgramMessage);
           // console.log(`[${timestamp}] 📥 Added ${deepgramMessage.length} bytes to audio buffer (total: ${audioManager.audioBuffer.length})`);
         }
 
@@ -894,7 +894,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       // Add TTS audio to buffer instead of sending directly (persistent pacer handles sending)
       try {
         const audioData = Buffer.from(deepgramData.data, "base64");
-        connectionState.audioManager.addAudioData(audioData);
+        connectionState.audioManager.appendToBuffer(audioData);
         console.log(
           `[${timestamp}] 📥 Added TTS audio to buffer: ${audioData.length} bytes (total: ${connectionState.audioManager.audioBuffer.length})`
         );
@@ -1083,6 +1083,16 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       `[${timestamp}] 📋 Response data:`,
       JSON.stringify(deepgramData, null, 2)
     );
+  } else if (deepgramData.type === "History") {
+    console.log(`[${timestamp}] 📜 HISTORY: Assistant message logged`);
+    
+    // Add assistant message to transcript using connection state
+    if (deepgramData.content && deepgramData.content.trim()) {
+      connectionState.addTranscriptEntry("AI", deepgramData.content, timestamp);
+      // Also add to legacy global transcript for backward compatibility
+      addTranscriptEntry("AI", deepgramData.content, timestamp);
+      console.log(`[${timestamp}] 📝 Added transcript: [AI] ${deepgramData.content}`);
+    }
   } else {
     console.log(`[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`);
     console.log(
