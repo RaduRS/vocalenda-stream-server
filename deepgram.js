@@ -1086,10 +1086,12 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     const content = deepgramData.text || deepgramData.content;
     console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, content);
 
-    // Add conversation text to transcript
+    // Add conversation text to transcript using connection state
     if (content && content.trim()) {
+      // Deepgram sends role as 'user' or 'assistant' according to their docs
       const speaker = deepgramData.role === "user" ? "User" : "AI";
-      addTranscriptEntry(speaker, content, timestamp);
+      console.log(`[${timestamp}] 🔍 ConversationText role: '${deepgramData.role}' -> Speaker: '${speaker}'`);
+      connectionState.addTranscriptEntry(speaker, content, timestamp);
     }
   } else if (deepgramData.type === "FunctionResponse") {
     console.log(`[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`);
@@ -1098,12 +1100,15 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       JSON.stringify(deepgramData, null, 2)
     );
   } else if (deepgramData.type === "History") {
-    console.log(`[${timestamp}] 📜 HISTORY: Assistant message logged`);
+    console.log(`[${timestamp}] 📜 HISTORY: Message logged`);
     
-    // Add assistant message to transcript using connection state
+    // Add message to transcript using connection state with proper role detection
     if (deepgramData.content && deepgramData.content.trim()) {
-      connectionState.addTranscriptEntry("AI", deepgramData.content, timestamp);
-      console.log(`[${timestamp}] 📝 Added transcript: [AI] ${deepgramData.content}`);
+      // Deepgram sends role as 'user' or 'assistant' according to their docs
+      const speaker = deepgramData.role === "user" ? "User" : "AI";
+      console.log(`[${timestamp}] 🔍 History role: '${deepgramData.role}' -> Speaker: '${speaker}'`);
+      connectionState.addTranscriptEntry(speaker, deepgramData.content, timestamp);
+      console.log(`[${timestamp}] 📝 Added transcript: [${speaker}] ${deepgramData.content}`);
     }
   } else {
     console.log(`[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`);
