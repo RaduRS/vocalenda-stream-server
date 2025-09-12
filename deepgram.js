@@ -669,9 +669,9 @@ export async function handleDeepgramMessage(
       }
 
       // Validate that we have a valid stream ID
-      if (!streamSid) {
+      if (!streamSidParam) {
         console.warn(
-          `[${timestamp}] ⚠️ No streamSid available for audio forwarding`
+          `[${timestamp}] ⚠️ No streamSidParam available for audio forwarding`
         );
         return;
       }
