@@ -476,7 +476,7 @@ export async function saveConversationTranscript(callSid = null, deepgramWs = nu
         );
         
         // Clear the transcript after saving
-        transcriptManager.clearTranscript();
+        transcriptManager.clear();
         return;
       } catch (error) {
         console.error(
@@ -831,8 +831,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Add user speech to transcript using connection state
     if (transcript && transcript.trim()) {
       connectionState.addTranscriptEntry("User", transcript, timestamp);
-      // Also add to legacy global transcript for backward compatibility
-      addTranscriptEntry("User", transcript, timestamp);
     }
 
     // Enhanced detection for booking triggers
@@ -957,9 +955,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
 
     // Set up silence detection timeouts using connection state
     const scheduleNextSilenceCheck = () => {
-      connectionState.silenceManager.clearTimer();
-
-      connectionState.silenceManager.setTimeout(() => {
+      connectionState.silenceManager.setSilenceTimeout(() => {
         if (!connectionState.silenceManager.isTracking()) return; // User started speaking or timer paused, abort
 
         const silenceDuration = connectionState.silenceManager.getDuration();
@@ -1033,8 +1029,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Add AI response to transcript using connection state
     if (deepgramData.text && deepgramData.text.trim()) {
       connectionState.addTranscriptEntry("AI", deepgramData.text, timestamp);
-      // Also add to legacy global transcript for backward compatibility
-      addTranscriptEntry("AI", deepgramData.text, timestamp);
     }
 
     // Check if AI is mentioning availability without calling function
@@ -1060,8 +1054,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       responseText.trim()
     ) {
       connectionState.addTranscriptEntry("AI", responseText, timestamp);
-      // Also add to legacy global transcript for backward compatibility
-      addTranscriptEntry("AI", responseText, timestamp);
     }
   } else if (deepgramData.type === "FunctionCall") {
     await handleFunctionCallMessage(deepgramData, timestamp, context);
@@ -1092,8 +1084,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Add assistant message to transcript using connection state
     if (deepgramData.content && deepgramData.content.trim()) {
       connectionState.addTranscriptEntry("AI", deepgramData.content, timestamp);
-      // Also add to legacy global transcript for backward compatibility
-      addTranscriptEntry("AI", deepgramData.content, timestamp);
       console.log(`[${timestamp}] 📝 Added transcript: [AI] ${deepgramData.content}`);
     }
   } else {
