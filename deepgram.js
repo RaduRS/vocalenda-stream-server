@@ -956,9 +956,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Set up silence detection timeouts using connection state
     const scheduleNextSilenceCheck = () => {
       connectionState.silenceManager.setSilenceTimeout(() => {
-        if (!connectionState.silenceManager.isTracking()) return; // User started speaking or timer paused, abort
+        if (!connectionState.silenceManager.silenceStartTime) return; // User started speaking or timer paused, abort
 
-        const silenceDuration = connectionState.silenceManager.getDuration();
+        const silenceDuration = connectionState.silenceManager.getSilenceDuration();
         console.log(
           `[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`
         );
