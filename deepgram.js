@@ -422,6 +422,28 @@ const SILENCE_PAYLOAD = Buffer.alloc(FRAME_SIZE, 0xff).toString("base64");
 let silenceStartTime = null;
 let silencePromptCount = 0;
 let silenceTimeout = null;
+let silenceTimerPaused = false; // Track if silence timer is paused during agent processing
+
+// Helper functions for silence timer management
+function pauseSilenceTimer(reason, timestamp) {
+  silenceTimerPaused = true;
+  if (silenceTimeout) {
+    clearTimeout(silenceTimeout);
+    silenceTimeout = null;
+  }
+  console.log(`[${timestamp}] ⏸️ SILENCE_PAUSED: ${reason}`);
+}
+
+function resumeSilenceTimer(reason, timestamp) {
+  silenceTimerPaused = false;
+  // Only restart timer if we were tracking silence and agent finished speaking
+  if (silenceStartTime) {
+    console.log(`[${timestamp}] ▶️ SILENCE_RESUMED: ${reason}`);
+    // Don't restart the timer here - let AgentAudioDone handle it
+  } else {
+    console.log(`[${timestamp}] ▶️ SILENCE_TIMER_READY: ${reason}`);
+  }
+}
 
 // Transcript accumulation
 let conversationTranscript = [];
@@ -796,6 +818,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
     silenceStartTime = null;
     silencePromptCount = 0;
+    silenceTimerPaused = false; // Reset pause state when user speaks
     console.log(
       `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
     );
@@ -810,6 +833,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
     silenceStartTime = null;
     silencePromptCount = 0;
+    silenceTimerPaused = false; // Reset pause state when user speaks
     console.log(
       `[${timestamp}] 🔄 SILENCE_RESET: User speaking, silence tracking reset`
     );
@@ -908,12 +932,18 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       audioStreamTimeout = null;
     }
 
-    // Start silence tracking after AI finishes speaking
-    silenceStartTime = Date.now();
-    silencePromptCount = 0;
-    console.log(
-      `[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`
-    );
+    // Start silence tracking after AI finishes speaking (only if not paused)
+    if (!silenceTimerPaused) {
+      silenceStartTime = Date.now();
+      silencePromptCount = 0;
+      console.log(
+        `[${timestamp}] ⏰ SILENCE_START: Beginning silence tracking after AI speech`
+      );
+    } else {
+      console.log(
+        `[${timestamp}] ⏸️ SILENCE_PAUSED: Not starting timer - agent still processing`
+      );
+    }
 
     // Capture callSid and businessConfig for use in timeout closure
     const currentCallSid = context.callSid;
@@ -924,7 +954,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       if (silenceTimeout) clearTimeout(silenceTimeout);
 
       silenceTimeout = setTimeout(() => {
-        if (!silenceStartTime) return; // User started speaking, abort
+        if (!silenceStartTime || silenceTimerPaused) return; // User started speaking or timer paused, abort
 
         const silenceDuration = Date.now() - silenceStartTime;
         console.log(
@@ -991,6 +1021,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(
       `[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`
     );
+    
+    // Pause silence timer while agent is thinking
+    pauseSilenceTimer("Agent is thinking/processing", timestamp);
   } else if (deepgramData.type === "TtsStart") {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
@@ -1199,6 +1232,9 @@ async function handleFunctionCallRequestMessage(
     state.setFunctionCallTimeout(null);
   }
 
+  // Pause silence timer during function processing
+  pauseSilenceTimer("Processing function calls", timestamp);
+
   // Pause KeepAlive during function processing
   if (deepgramWs && deepgramWs.pauseKeepAlive) {
     deepgramWs.pauseKeepAlive();
@@ -1242,6 +1278,9 @@ async function handleFunctionCallRequestMessage(
   if (deepgramWs && deepgramWs.resumeKeepAlive) {
     deepgramWs.resumeKeepAlive();
   }
+
+  // Resume silence timer after function processing
+  resumeSilenceTimer("Function processing completed", timestamp);
 }
 
 // Utility functions are now imported from utils.js module
