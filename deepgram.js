@@ -145,7 +145,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
               speak: {
                 provider: {
                   type: "deepgram",
-                  model: "aura-2-thalia-en",
+                  model: businessConfig.config?.ai_voice || "aura-2-thalia-en",
                 },
               },
               greeting:
