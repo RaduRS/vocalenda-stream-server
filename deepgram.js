@@ -1045,11 +1045,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "TtsText") {
     console.log(`[${timestamp}] 💬 TTS_TEXT: AI response:`, deepgramData.text);
 
-    // Add AI response to transcript using connection state
-    if (deepgramData.text && deepgramData.text.trim()) {
-      connectionState.addTranscriptEntry("AI", deepgramData.text, timestamp);
-    }
-
+    // Note: Transcript entry handled by History/ConversationText events to avoid duplicates
+    // Only keeping the availability check logic here
+    
     // Check if AI is mentioning availability without calling function
     if (
       deepgramData.text &&
@@ -1066,14 +1064,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       deepgramData.response || deepgramData.text || "No response text";
     console.log(`[${timestamp}] 🤖 AGENT_RESPONSE:`, responseText);
 
-    // Add AI response to transcript using connection state
-    if (
-      responseText &&
-      responseText !== "No response text" &&
-      responseText.trim()
-    ) {
-      connectionState.addTranscriptEntry("AI", responseText, timestamp);
-    }
+    // Note: Transcript entry handled by History/ConversationText events to avoid duplicates
   } else if (deepgramData.type === "FunctionCall") {
     await handleFunctionCallMessage(deepgramData, timestamp, context);
   } else if (deepgramData.type === "FunctionCallRequest") {
@@ -1086,9 +1077,9 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     const content = deepgramData.text || deepgramData.content;
     console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, content);
 
-    // Add conversation text to transcript using connection state
+    // Add conversation text to transcript - both ConversationText and History are needed
+    // as they may contain different messages or arrive at different times
     if (content && content.trim()) {
-      // Deepgram sends role as 'user' or 'assistant' according to their docs
       const speaker = deepgramData.role === "user" ? "User" : "AI";
       console.log(`[${timestamp}] 🔍 ConversationText role: '${deepgramData.role}' -> Speaker: '${speaker}'`);
       connectionState.addTranscriptEntry(speaker, content, timestamp);

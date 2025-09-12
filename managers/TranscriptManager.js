@@ -9,6 +9,22 @@ export class TranscriptManager {
   }
   
   addEntry(speaker, text, timestamp = new Date().toISOString()) {
+    // Check for duplicate entries (same speaker, text, and within 5 seconds)
+    const isDuplicate = this.conversationTranscript.some(entry => {
+      if (entry.speaker === speaker && entry.text === text) {
+        const entryTime = new Date(entry.timestamp).getTime();
+        const currentTime = new Date(timestamp).getTime();
+        const timeDiff = Math.abs(currentTime - entryTime);
+        return timeDiff < 5000; // 5 seconds threshold
+      }
+      return false;
+    });
+    
+    if (isDuplicate) {
+      console.log(`📝 TRANSCRIPT: Skipping duplicate ${speaker}: ${text}`);
+      return null;
+    }
+    
     const entry = { speaker, text, timestamp };
     this.conversationTranscript.push(entry);
     console.log(`📝 TRANSCRIPT: Added ${speaker}: ${text}`);
