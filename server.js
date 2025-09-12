@@ -43,6 +43,7 @@ wss.on("connection", async (ws, req) => {
   let businessId = null;
   let callSid = null;
   let businessConfig = null;
+  let transcriptSaved = false;
   let deepgramReady = false; // Track if Deepgram is ready to receive audio
   let expectingFunctionCall = false;
   let functionCallTimeout = null;
@@ -270,6 +271,7 @@ wss.on("connection", async (ws, req) => {
               
               // Save conversation transcript
               await saveConversationTranscript(callSid, deepgramWs);
+              transcriptSaved = true;
             }
           } catch (error) {
             console.error("❌ Failed to log call completion:", error);
@@ -296,8 +298,10 @@ wss.on("connection", async (ws, req) => {
         await db.updateCallStatus(callSid, 'completed', endTime);
         console.log(`✅ Call completion logged on close: ${callSid}`);
         
-        // Save conversation transcript
-        await saveConversationTranscript(callSid, deepgramWs);
+        // Save conversation transcript only if not already saved
+        if (!transcriptSaved) {
+          await saveConversationTranscript(callSid, deepgramWs);
+        }
       }
     } catch (error) {
       console.error("❌ Failed to log call completion on close:", error);
