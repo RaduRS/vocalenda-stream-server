@@ -721,7 +721,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
       );
     }
 
-    const successMessage = `Appointment booked for ${customer_name} on ${date} at ${time} for ${service.name}`;
+    const successMessage = `✅ BOOKING CONFIRMED: Appointment successfully booked for ${customer_name} on ${date} at ${time} for ${service.name}. This time slot is now reserved and unavailable for other bookings.`;
     const calendarNote = result.calendarEventId
       ? " Event has been added to your Google Calendar."
       : "";
