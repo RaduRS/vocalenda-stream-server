@@ -295,7 +295,25 @@ wss.on("connection", async (ws, req) => {
       if (callSid) {
         const endTime = new Date().toISOString();
         console.log(`📞 Logging call completion on close: ${callSid}`);
-        await db.updateCallStatus(callSid, 'completed', endTime);
+        
+        // Get the call record to calculate duration
+        const { data: callRecord, error: fetchError } = await supabase
+          .from('call_logs')
+          .select('started_at')
+          .eq('twilio_call_sid', callSid)
+          .single();
+          
+        let duration = null;
+        if (!fetchError && callRecord?.started_at) {
+          const startTime = new Date(callRecord.started_at);
+          const endTimeDate = new Date(endTime);
+          duration = Math.round((endTimeDate.getTime() - startTime.getTime()) / 1000);
+          console.log(`📊 Call duration calculated: ${duration} seconds`);
+        } else {
+          console.error('❌ Failed to fetch call start time for duration calculation:', fetchError);
+        }
+        
+        await db.updateCallStatus(callSid, 'completed', endTime, duration);
         console.log(`✅ Call completion logged on close: ${callSid}`);
         
         // Save conversation transcript only if not already saved
