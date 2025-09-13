@@ -398,9 +398,8 @@ export async function getAvailableSlots(businessConfig, params) {
       return { error: "No services available" };
     }
 
-    // Call calendar slots API to check availability (NOT for booking)
-    // The /api/internal/booking endpoint is used for actual booking creation
-    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/slots?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    // Call the new simplified calendar availability API
+    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
 
     console.log(`[${timestamp}] 🌐 About to make API call:`);
     console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
@@ -598,7 +597,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
       const availabilityResponse = await fetch(
         `${
           config.nextjs.siteUrl || "http://localhost:3000"
-        }/api/calendar/slots/check-availability`,
+        }/api/calendar/availability`,
         {
           method: "POST",
           headers: {
