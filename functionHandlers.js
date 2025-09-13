@@ -592,6 +592,58 @@ export async function createBooking(businessConfig, params, callSid = null) {
     console.log(`🕐 End time: ${endTimeString}`);
     console.log(`📅 Day of week: ${getDayOfWeekName(parsedDate)}`);
 
+    // CRITICAL: Check availability before creating booking to prevent double bookings
+    console.log("🔍 Checking slot availability before booking...");
+    try {
+      const availabilityResponse = await fetch(
+        `${
+          config.nextjs.siteUrl || "http://localhost:3000"
+        }/api/calendar/slots/check-availability`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-secret": config.nextjs.internalApiSecret,
+          },
+          body: JSON.stringify({
+            businessId: businessConfig.business.id,
+            serviceId: service.id,
+            appointmentDate: date,
+            startTime: startTime,
+            endTime: endTimeString,
+          }),
+        }
+      );
+
+      if (!availabilityResponse.ok) {
+        console.error(
+          "❌ Failed to check availability:",
+          availabilityResponse.status
+        );
+        return {
+          error: "Unable to verify slot availability. Please try again.",
+        };
+      }
+
+      const availabilityResult = await availabilityResponse.json();
+      console.log(
+        "📋 Availability check result:",
+        JSON.stringify(availabilityResult, null, 2)
+      );
+
+      if (!availabilityResult.available) {
+        console.log("❌ Slot not available - preventing double booking");
+        return {
+          error: `Sorry, the ${time} slot on ${date} is no longer available. Please choose a different time.`,
+        };
+      }
+
+      console.log("✅ Slot is available - proceeding with booking");
+    } catch (error) {
+      console.error("❌ Error checking availability:", error);
+      return { error: "Unable to verify slot availability. Please try again." };
+    }
+
     // Prepare booking data for the Next.js API
     const bookingData = {
       businessId: businessConfig.business.id,
@@ -665,7 +717,9 @@ export async function createBooking(businessConfig, params, callSid = null) {
         lastAppointmentId: result.appointmentId,
         lastServiceDuration: service.duration_minutes,
       });
-      console.log(`📋 Stored appointment ID in session: ${result.appointmentId}`);
+      console.log(
+        `📋 Stored appointment ID in session: ${result.appointmentId}`
+      );
     }
 
     const successMessage = `Appointment booked for ${customer_name} on ${date} at ${time} for ${service.name}`;
@@ -928,17 +982,23 @@ export async function endCall(callSid, params, businessConfig = null) {
     // Check if there was a successful booking and send SMS confirmation
     if (session.lastAppointmentId && session.callerPhone && businessConfig) {
       try {
-        console.log("📱 Sending SMS confirmation for appointment:", session.lastAppointmentId);
-        await sendSMSConfirmation({
-          businessId: businessConfig.business.id,
-          customerPhone: session.callerPhone,
-          appointmentId: session.lastAppointmentId,
-          customerName: session.customerName,
-          appointmentDate: session.lastBookingDate,
-          appointmentTime: session.lastBookingTime,
-          serviceName: session.lastServiceName,
-          serviceDuration: session.lastServiceDuration
-        }, businessConfig);
+        console.log(
+          "📱 Sending SMS confirmation for appointment:",
+          session.lastAppointmentId
+        );
+        await sendSMSConfirmation(
+          {
+            businessId: businessConfig.business.id,
+            customerPhone: session.callerPhone,
+            appointmentId: session.lastAppointmentId,
+            customerName: session.customerName,
+            appointmentDate: session.lastBookingDate,
+            appointmentTime: session.lastBookingTime,
+            serviceName: session.lastServiceName,
+            serviceDuration: session.lastServiceDuration,
+          },
+          businessConfig
+        );
         console.log("✅ SMS confirmation sent successfully");
       } catch (smsError) {
         console.error("❌ Failed to send SMS confirmation:", smsError);
@@ -992,73 +1052,83 @@ export async function transferToHuman(businessConfig, params, callSid) {
 
     // Get bypass phone number from business config
     const bypassPhoneNumber = businessConfig.config?.bypass_phone_number;
-    
+
     if (!bypassPhoneNumber) {
       console.error("❌ No bypass phone number configured for business");
       return {
         success: false,
         error: "Human transfer not available - no phone number configured",
-        message: "I apologize, but human transfer is not currently available. Please try calling back later or leave a message."
+        message:
+          "I apologize, but human transfer is not currently available. Please try calling back later or leave a message.",
       };
     }
 
     console.log("📞 Bypass phone number found:", bypassPhoneNumber);
 
     // Log the transfer request
-    console.log(`🔄 Initiating transfer from AI to human at ${bypassPhoneNumber}`);
-    
+    console.log(
+      `🔄 Initiating transfer from AI to human at ${bypassPhoneNumber}`
+    );
+
     // Get caller information from session
     const session = getCallSession(callSid);
-    const callerPhone = session?.callerPhone || 'Unknown';
-    
+    const callerPhone = session?.callerPhone || "Unknown";
+
     console.log(`📞 Caller: ${callerPhone} requesting human transfer`);
 
     // Implement Twilio call transfer using REST API
     if (!config.twilio.accountSid || !config.twilio.authToken) {
-      console.error('❌ Twilio credentials not configured');
+      console.error("❌ Twilio credentials not configured");
       return {
         success: false,
-        error: 'Call transfer service is not properly configured',
-        message: 'I apologize, but call transfer is not properly configured. Please try calling back later.'
+        error: "Call transfer service is not properly configured",
+        message:
+          "I apologize, but call transfer is not properly configured. Please try calling back later.",
       };
     }
-    
+
     // Create Twilio client
     const twilio = (await import("twilio")).default(
       config.twilio.accountSid,
       config.twilio.authToken
     );
-    
+
     // Update the call to transfer it to the bypass number
     // This will redirect the call to the new number
     const siteUrl = config.nextjs.siteUrl;
-    const transferUrl = `${siteUrl}/api/voice/transfer?to=${encodeURIComponent(bypassPhoneNumber)}&reason=${encodeURIComponent(params.reason || 'Customer requested human assistance')}`;
-    
+    const transferUrl = `${siteUrl}/api/voice/transfer?to=${encodeURIComponent(
+      bypassPhoneNumber
+    )}&reason=${encodeURIComponent(
+      params.reason || "Customer requested human assistance"
+    )}`;
+
     console.log(`📞 Transferring call to: ${transferUrl}`);
-    
-    const call = await twilio.calls(callSid)
-      .update({
-        url: transferUrl,
-        method: 'POST'
-      });
-    
-    console.log(`✅ Call ${callSid} successfully transferred to ${bypassPhoneNumber}`);
-    
+
+    const call = await twilio.calls(callSid).update({
+      url: transferUrl,
+      method: "POST",
+    });
+
+    console.log(
+      `✅ Call ${callSid} successfully transferred to ${bypassPhoneNumber}`
+    );
+
     return {
       success: true,
       transfer_number: bypassPhoneNumber,
-      message: "I'm connecting you to a human representative now. Please hold while I transfer your call.",
+      message:
+        "I'm connecting you to a human representative now. Please hold while I transfer your call.",
       caller_phone: callerPhone,
       reason: params.reason || "Customer requested human assistance",
-      twilio_call_sid: call.sid
+      twilio_call_sid: call.sid,
     };
-
   } catch (error) {
     console.error("❌ Error processing human transfer:", error);
     return {
       success: false,
       error: error.message,
-      message: "I apologize, but I'm unable to transfer you to a human right now. Please try calling back later."
+      message:
+        "I apologize, but I'm unable to transfer you to a human right now. Please try calling back later.",
     };
   }
 }
@@ -1077,22 +1147,26 @@ async function sendSMSConfirmation(params, businessConfig) {
     appointmentDate,
     appointmentTime,
     serviceName,
-    serviceDuration
+    serviceDuration,
   } = params;
 
   // Get custom SMS template from business config or use default
-  const template = businessConfig?.config?.sms_confirmation_template || 
+  const template =
+    businessConfig?.config?.sms_confirmation_template ||
     `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. See you soon! {business_phone}`;
-  
+
   // Replace template variables with actual values
   const message = template
     .replace(/{customer_name}/g, customerName)
-    .replace(/{business_name}/g, businessConfig?.business?.name || 'our business')
+    .replace(
+      /{business_name}/g,
+      businessConfig?.business?.name || "our business"
+    )
     .replace(/{date}/g, appointmentDate)
     .replace(/{time}/g, appointmentTime)
     .replace(/{service_name}/g, serviceName)
-    .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : '')
-    .replace(/{business_phone}/g, businessConfig?.business?.phone || '');
+    .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : "")
+    .replace(/{business_phone}/g, businessConfig?.business?.phone || "");
 
   // Call the SMS API
   const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
@@ -1106,7 +1180,7 @@ async function sendSMSConfirmation(params, businessConfig) {
       customerPhone,
       message,
       type: "confirmation",
-      appointmentId
+      appointmentId,
     }),
   });
 
