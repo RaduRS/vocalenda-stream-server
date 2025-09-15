@@ -520,6 +520,23 @@ export async function createBooking(businessConfig, params, callSid = null) {
 
     // Store customer info in session for future use
     if (callSid && customer_name) {
+      const session = getCallSession(callSid);
+      const bookings = session.bookings || [];
+      
+      // Add this booking to the list (will be updated with appointment ID later)
+      const newBooking = {
+        customerName: customer_name,
+        date: date,
+        time: time,
+        serviceId: service_id,
+        serviceName: service.name,
+        serviceDuration: service.duration_minutes,
+        appointmentId: null, // Will be set after successful creation
+        type: 'create'
+      };
+      
+      bookings.push(newBooking);
+      
       setCallSession(callSid, {
         customerName: customer_name,
         lastBookingDate: date,
@@ -527,6 +544,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
         lastServiceId: service_id,
         lastServiceName: service.name,
         lastServiceDuration: service.duration_minutes,
+        bookings: bookings
       });
     }
 
@@ -712,9 +730,21 @@ export async function createBooking(businessConfig, params, callSid = null) {
 
     // Store appointment ID in session for SMS confirmation
     if (callSid && result.appointmentId) {
+      const session = getCallSession(callSid);
+      const bookings = session.bookings || [];
+      
+      // Update the most recent booking with the appointment ID
+      if (bookings.length > 0) {
+        const lastBooking = bookings[bookings.length - 1];
+        if (lastBooking.appointmentId === null) {
+          lastBooking.appointmentId = result.appointmentId;
+        }
+      }
+      
       setCallSession(callSid, {
         lastAppointmentId: result.appointmentId,
         lastServiceDuration: service.duration_minutes,
+        bookings: bookings
       });
       console.log(
         `📋 Stored appointment ID in session: ${result.appointmentId}`
@@ -806,7 +836,25 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     // Update session with new booking details if provided
     if (callSid && (new_date || new_time || new_service_id)) {
-      const sessionUpdate = {};
+      const session = getCallSession(callSid);
+      const bookings = session.bookings || [];
+      
+      // Add this update to the bookings array
+      const updateBooking = {
+        customerName: customerNameToUse,
+        currentDate: currentDateToUse,
+        currentTime: currentTimeToUse,
+        newDate: new_date,
+        newTime: new_time,
+        newServiceId: new_service_id,
+        type: 'update'
+      };
+      
+      bookings.push(updateBooking);
+      
+      const sessionUpdate = {
+        bookings: bookings
+      };
       if (new_date) sessionUpdate.lastBookingDate = new_date;
       if (new_time) sessionUpdate.lastBookingTime = new_time;
       if (new_service_id) sessionUpdate.lastServiceId = new_service_id;
@@ -847,6 +895,25 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     const result = await response.json();
     console.log("✅ Booking updated successfully:", result);
+
+    // Update the booking in the session with final details
+    if (callSid && result.booking) {
+      const session = getCallSession(callSid);
+      const bookings = session.bookings || [];
+      
+      // Update the most recent update booking with final details
+      if (bookings.length > 0) {
+        const lastBooking = bookings[bookings.length - 1];
+        if (lastBooking.type === 'update') {
+          lastBooking.finalDate = result.booking.date;
+          lastBooking.finalTime = result.booking.start_time;
+          lastBooking.appointmentId = result.booking.id;
+          lastBooking.serviceName = result.booking.service_name;
+        }
+      }
+      
+      setCallSession(callSid, { bookings: bookings });
+    }
 
     return {
       success: true,
@@ -939,6 +1006,29 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
     const result = await response.json();
     console.log("✅ Booking cancelled successfully:", result);
 
+    // Track the cancellation in the bookings array
+    if (callSid) {
+      const session = getCallSession(callSid);
+      const bookings = session.bookings || [];
+      
+      const cancellation = {
+        customerName: customerNameToUse,
+        date: dateToUse,
+        time: timeToUse,
+        reason: reason || "Customer requested cancellation",
+        type: 'cancellation',
+        appointmentId: result.booking?.id
+      };
+      
+      bookings.push(cancellation);
+      
+      setCallSession(callSid, { 
+        bookings: bookings,
+        bookingCancelled: true 
+      });
+      console.log("📝 Tracked cancellation in session - no SMS will be sent");
+    }
+
     return {
       success: true,
       message: `Booking cancelled successfully for ${customer_name}`,
@@ -978,31 +1068,37 @@ export async function endCall(callSid, params, businessConfig = null) {
     const session = getCallSession(callSid);
     console.log("📋 Session data before ending call:", session);
 
-    // Check if there was a successful booking and send SMS confirmation
-    if (session.lastAppointmentId && session.callerPhone && businessConfig) {
+    // Send consolidated SMS with all bookings made during the call
+    if (session.bookings && session.bookings.length > 0 && session.callerPhone && businessConfig && !session.bookingCancelled) {
       try {
-        console.log(
-          "📱 Sending SMS confirmation for appointment:",
-          session.lastAppointmentId
+        // Filter out cancellations and get only successful bookings/updates
+        const successfulBookings = session.bookings.filter(booking => 
+          booking.type !== 'cancellation' && booking.appointmentId
         );
-        await sendSMSConfirmation(
-          {
-            businessId: businessConfig.business.id,
-            customerPhone: session.callerPhone,
-            appointmentId: session.lastAppointmentId,
-            customerName: session.customerName,
-            appointmentDate: session.lastBookingDate,
-            appointmentTime: session.lastBookingTime,
-            serviceName: session.lastServiceName,
-            serviceDuration: session.lastServiceDuration,
-          },
-          businessConfig
-        );
-        console.log("✅ SMS confirmation sent successfully");
+        
+        if (successfulBookings.length > 0) {
+          console.log(
+            "📱 Sending consolidated SMS confirmation for bookings:",
+            successfulBookings.map(b => b.appointmentId)
+          );
+          
+          await sendConsolidatedSMSConfirmation(
+            {
+              businessId: businessConfig.business.id,
+              customerPhone: session.callerPhone,
+              customerName: session.customerName,
+              bookings: successfulBookings,
+            },
+            businessConfig
+          );
+          console.log("✅ Consolidated SMS confirmation sent successfully");
+        }
       } catch (smsError) {
-        console.error("❌ Failed to send SMS confirmation:", smsError);
+        console.error("❌ Failed to send consolidated SMS confirmation:", smsError);
         // Don't fail the call ending if SMS fails
       }
+    } else if (session.bookingCancelled) {
+      console.log("🚫 Skipping SMS confirmation - booking was cancelled in this call");
     }
 
     // Initialize Twilio client
@@ -1190,4 +1286,50 @@ async function sendSMSConfirmation(params, businessConfig) {
 
   const result = await response.json();
   console.log("📱 SMS confirmation result:", result);
+}
+
+/**
+ * Send consolidated SMS confirmation for multiple bookings
+ * @param {Object} params - SMS parameters
+ * @param {Object} businessConfig - Business configuration
+ * @returns {Promise<void>}
+ */
+async function sendConsolidatedSMSConfirmation(params, businessConfig) {
+  const { businessId, customerPhone, customerName, bookings } = params;
+
+  // Build message with all bookings
+  let message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
+  
+  bookings.forEach((booking, index) => {
+    const date = booking.finalDate || booking.date;
+    const time = booking.finalTime || booking.time;
+    const serviceName = booking.serviceName || booking.service_name || "your service";
+    
+    message += `${index + 1}. ${serviceName} on ${date} at ${time}\n`;
+  });
+  
+  message += `\nSee you soon! ${businessConfig?.business?.phone || ""}`;
+
+  // Call the SMS API with the first booking's appointment ID for tracking
+  const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/sms/send`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      businessId,
+      customerPhone,
+      message,
+      type: "confirmation",
+      appointmentId: bookings[0]?.appointmentId,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Consolidated SMS API error: ${response.status} ${errorText}`);
+  }
+
+  console.log("✅ Consolidated SMS sent successfully");
 }

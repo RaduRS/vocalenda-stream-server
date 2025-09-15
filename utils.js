@@ -46,12 +46,17 @@ export function generateSystemPrompt(businessConfig, callContext) {
       .toISOString()
       .split("T")[0]
   }
-- 🚨 ABSOLUTE RULE: BEFORE mentioning ANY day name for ANY date, you MUST call get_day_of_week function first
-- 🚨 FORBIDDEN: NEVER state what day a date is without calling get_day_of_week function
-- 🚨 MANDATORY: If you mention "September 11th is Wednesday" without calling get_day_of_week, you are VIOLATING the protocol
-- 🚨 REQUIRED PROCESS: Date mentioned → IMMEDIATELY call get_day_of_week → Use the returned day name
-- Example: Customer says "September 11th" → You MUST call get_day_of_week("11/09/2025") → Use the result to say the correct day
-- NEVER trust your internal knowledge about dates - ALWAYS verify with the function
+- 🚨 CRITICAL RULE: BEFORE mentioning ANY day name (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) for ANY date, you MUST call get_day_of_week function first
+- 🚨 ABSOLUTE PROHIBITION: NEVER EVER state what day a date is without calling get_day_of_week function first
+- 🚨 VIOLATION EXAMPLES: Saying "Wednesday, 17 September" or "Your appointment is on Tuesday" without calling get_day_of_week is STRICTLY FORBIDDEN
+- 🚨 MANDATORY PROCESS: When you need to mention a day name:
+  1. FIRST call get_day_of_week with the date in DD/MM/YYYY format
+  2. WAIT for the response
+  3. ONLY THEN use the returned day name in your response
+- 🚨 ENFORCEMENT: If you mention ANY day name without calling get_day_of_week first, you are BREAKING THE SYSTEM
+- Example: For date "16/09/2025" → MUST call get_day_of_week("16/09/2025") → Use returned day name
+- NEVER trust your internal calendar knowledge - ALWAYS verify with the function
+- This applies to ALL date communications: bookings, updates, confirmations, reschedules
 
 ⏰ TIME FORMAT MATCHING RULES:
 - Available slots are returned in 24-hour format (e.g., "13:30" for 1:30 PM)
@@ -284,13 +289,13 @@ export function getAvailableFunctions() {
     {
       name: "get_day_of_week",
       description:
-        "Get the day of the week for a given date. Use this to verify dates silently in the background without announcing to the customer.",
+        "MANDATORY: Get the day of the week for a given date. You MUST call this function BEFORE mentioning ANY day name (Monday, Tuesday, etc.) for ANY date. This is REQUIRED for ALL date communications including bookings, updates, confirmations, and reschedules. NEVER state what day a date is without calling this function first.",
       parameters: {
         type: "object",
         properties: {
           date: {
             type: "string",
-            description: "Date in DD/MM/YYYY format (e.g., 11/09/2025)",
+            description: "Date in DD/MM/YYYY format (e.g., 16/09/2025 for September 16, 2025)",
           },
         },
         required: ["date"],
