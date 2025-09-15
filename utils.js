@@ -123,12 +123,13 @@ BUSINESS: ${business.name}`;
 1. AFTER getting customer name + service interest → ASK for their preferred time
 2. VALIDATE requested time is within business hours BEFORE checking availability
 3. Check if preferred time is available using get_available_slots (only if within business hours)
-4. If available, confirm and book directly. If not, suggest alternatives
-5. Use create_booking to confirm appointments
-6. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
-7. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
-8. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
-9. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
+4. 🚨 CRITICAL: ALWAYS call get_available_slots IMMEDIATELY before ANY booking confirmation - NEVER use old availability data
+5. If available, confirm and book directly. If not, suggest alternatives
+6. Use create_booking to confirm appointments
+7. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
+8. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
+9. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
+10. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
    CRITICAL TIME CONVERSIONS:
    - "1 PM" = "1pm" = "one o'clock" = "13:00" 
    - "2 PM" = "2pm" = "two o'clock" = "14:00"
@@ -143,6 +144,9 @@ You: "Perfect John! What time would you prefer for your haircut tomorrow?"
 Customer: "10am"
 [SILENTLY call get_available_slots - DO NOT say "let me check"]
 If available: "Perfect! I can book you for 10am. Shall I confirm that?"
+Customer: "Yes"
+[🚨 CRITICAL: SILENTLY call get_available_slots AGAIN before booking to ensure slot is still available]
+If still available: [Call create_booking] "Great! Your appointment is confirmed for 10am tomorrow."
 If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
 
 ⚡ CRITICAL 1 PM EXAMPLE:
