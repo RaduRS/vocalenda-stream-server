@@ -1072,14 +1072,37 @@ export async function endCall(callSid, params, businessConfig = null) {
     if (session.bookings && session.bookings.length > 0 && session.callerPhone && businessConfig && !session.bookingCancelled) {
       try {
         // Filter out cancellations and get only successful bookings/updates
-        const successfulBookings = session.bookings.filter(booking => 
+        const allBookings = session.bookings.filter(booking => 
           booking.type !== 'cancellation' && booking.appointmentId
         );
         
-        if (successfulBookings.length > 0) {
+        // Consolidate bookings to show only final state (handle updates)
+        const consolidatedBookings = [];
+        const processedAppointmentIds = new Set();
+        
+        // Process bookings in reverse order to get the latest state first
+        for (let i = allBookings.length - 1; i >= 0; i--) {
+          const booking = allBookings[i];
+          
+          if (!processedAppointmentIds.has(booking.appointmentId)) {
+            // For updates, use the final details; for creates, use original details
+            const finalBooking = {
+              appointmentId: booking.appointmentId,
+              serviceName: booking.serviceName || booking.service_name,
+              date: booking.finalDate || booking.date,
+              time: booking.finalTime || booking.time,
+              type: booking.type
+            };
+            
+            consolidatedBookings.unshift(finalBooking); // Add to beginning to maintain chronological order
+            processedAppointmentIds.add(booking.appointmentId);
+          }
+        }
+        
+        if (consolidatedBookings.length > 0) {
           console.log(
             "📱 Sending consolidated SMS confirmation for bookings:",
-            successfulBookings.map(b => b.appointmentId)
+            consolidatedBookings.map(b => b.appointmentId)
           );
           
           await sendConsolidatedSMSConfirmation(
@@ -1087,7 +1110,7 @@ export async function endCall(callSid, params, businessConfig = null) {
               businessId: businessConfig.business.id,
               customerPhone: session.callerPhone,
               customerName: session.customerName,
-              bookings: successfulBookings,
+              bookings: consolidatedBookings,
             },
             businessConfig
           );
