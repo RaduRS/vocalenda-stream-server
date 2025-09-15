@@ -796,8 +796,52 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     // Use session data as fallback for missing information
     const customerNameToUse = customer_name || session.customerName;
-    const currentDateToUse = current_date || session.lastBookingDate;
-    const currentTimeToUse = current_time || session.lastBookingTime;
+    
+    // Improved logic to identify which appointment to update
+    let currentDateToUse = current_date;
+    let currentTimeToUse = current_time;
+    
+    // If no specific date/time provided, try to infer from context
+    if (!currentDateToUse || !currentTimeToUse) {
+      const bookings = session.bookings || [];
+      
+      // Look for the most recent 'create' booking that matches the context
+      // If new_service_id is provided, try to find a booking with that service
+      let targetBooking = null;
+      
+      if (new_service_id) {
+        // Find booking with matching service
+        targetBooking = bookings.reverse().find(b => 
+          b.type === 'create' && 
+          b.serviceId === new_service_id && 
+          b.appointmentId
+        );
+      }
+      
+      // If no service match or no service specified, use the most recent create booking
+      if (!targetBooking) {
+        targetBooking = bookings.reverse().find(b => 
+          b.type === 'create' && 
+          b.appointmentId
+        );
+      }
+      
+      if (targetBooking) {
+        currentDateToUse = currentDateToUse || targetBooking.date;
+        currentTimeToUse = currentTimeToUse || targetBooking.time;
+        console.log("🎯 Identified target booking:", {
+          appointmentId: targetBooking.appointmentId,
+          service: targetBooking.serviceName,
+          date: targetBooking.date,
+          time: targetBooking.time
+        });
+      } else {
+        // Fallback to session data (old behavior)
+        currentDateToUse = currentDateToUse || session.lastBookingDate;
+        currentTimeToUse = currentTimeToUse || session.lastBookingTime;
+        console.log("⚠️ Using fallback session data - this may update the wrong appointment");
+      }
+    }
 
     console.log("🔄 Using customer info:", {
       customerName: customerNameToUse,
@@ -1086,15 +1130,40 @@ export async function endCall(callSid, params, businessConfig = null) {
             // Find which appointment this update belongs to
             let targetAppointmentId = booking.appointmentId;
             
-            // If no appointmentId, this is an intermediate update - find the most recent booking
+            // If no appointmentId, this is an intermediate update - find the target appointment
             if (!targetAppointmentId) {
               // Look for the most recent booking that could be updated
-              for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
-                const prevBooking = session.bookings[i];
-                if (prevBooking.appointmentId && prevBooking.type !== 'cancellation') {
-                  targetAppointmentId = prevBooking.appointmentId;
-                  break;
+              // Try to match by service first, then by most recent
+              let targetBooking = null;
+              
+              // If the update specifies dates/times, try to match existing appointments
+              if (booking.currentDate && booking.currentTime) {
+                for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
+                  const prevBooking = session.bookings[i];
+                  if (prevBooking.appointmentId && 
+                      prevBooking.type === 'create' &&
+                      prevBooking.date === booking.currentDate &&
+                      prevBooking.time === booking.currentTime) {
+                    targetBooking = prevBooking;
+                    break;
+                  }
                 }
+              }
+              
+              // If no exact match, find the most recent create booking
+              if (!targetBooking) {
+                for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
+                  const prevBooking = session.bookings[i];
+                  if (prevBooking.appointmentId && prevBooking.type === 'create') {
+                    targetBooking = prevBooking;
+                    break;
+                  }
+                }
+              }
+              
+              if (targetBooking) {
+                targetAppointmentId = targetBooking.appointmentId;
+                console.log(`🔗 Linked update to appointment ${targetAppointmentId} based on context`);
               }
             }
             
@@ -1103,12 +1172,14 @@ export async function endCall(callSid, params, businessConfig = null) {
                 bookingChains.set(targetAppointmentId, []);
               }
               bookingChains.get(targetAppointmentId).push(booking);
+            } else {
+              console.warn("⚠️ Could not link update to any appointment:", booking);
             }
           }
         }
         
         // Second pass: determine final state for each booking chain
-        for (const [, chain] of bookingChains) {
+        for (const [appointmentId, chain] of bookingChains) {
           if (chain.length === 0) continue;
           
           // Find the final state by looking at the last booking with complete info
@@ -1127,13 +1198,29 @@ export async function endCall(callSid, params, businessConfig = null) {
           }
           
           // Apply updates in order
-          for (const update of chain.filter(b => b.type === 'update')) {
+          const updates = chain.filter(b => b.type === 'update').sort((a, b) => {
+            // Sort by order in the bookings array (later updates override earlier ones)
+            return session.bookings.indexOf(a) - session.bookings.indexOf(b);
+          });
+          
+          for (const update of updates) {
             if (finalBooking) {
               // Update the final booking with new information
               if (update.finalDate) finalBooking.date = update.finalDate;
               if (update.finalTime) finalBooking.time = update.finalTime;
+              if (update.newDate && !update.finalDate) finalBooking.date = update.newDate;
+              if (update.newTime && !update.finalTime) finalBooking.time = update.newTime;
               if (update.serviceName) finalBooking.serviceName = update.serviceName;
               if (update.appointmentId) finalBooking.appointmentId = update.appointmentId;
+              
+              console.log(`📝 Applied update to appointment ${appointmentId}:`, {
+                finalDate: update.finalDate,
+                finalTime: update.finalTime,
+                newDate: update.newDate,
+                newTime: update.newTime,
+                resultingDate: finalBooking.date,
+                resultingTime: finalBooking.time
+              });
             }
           }
           
