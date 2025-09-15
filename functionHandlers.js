@@ -1071,38 +1071,81 @@ export async function endCall(callSid, params, businessConfig = null) {
     // Send consolidated SMS with all bookings made during the call
     if (session.bookings && session.bookings.length > 0 && session.callerPhone && businessConfig && !session.bookingCancelled) {
       try {
-        // Filter out cancellations and get only successful bookings/updates
-        const allBookings = session.bookings.filter(booking => 
-          booking.type !== 'cancellation' && booking.appointmentId
-        );
+        // Track booking evolution: group by appointment chains
+        const bookingChains = new Map(); // appointmentId -> array of booking states
+        const finalBookings = [];
         
-        // Consolidate bookings to show only final state (handle updates)
-        const consolidatedBookings = [];
-        const processedAppointmentIds = new Set();
-        
-        // Process bookings in reverse order to get the latest state first
-        for (let i = allBookings.length - 1; i >= 0; i--) {
-          const booking = allBookings[i];
+        // First pass: group bookings by appointment ID and track evolution
+        for (const booking of session.bookings) {
+          if (booking.type === 'cancellation') continue;
           
-          if (!processedAppointmentIds.has(booking.appointmentId)) {
-            // For updates, use the final details; for creates, use original details
-            const finalBooking = {
-              appointmentId: booking.appointmentId,
-              serviceName: booking.serviceName || booking.service_name,
-              date: booking.finalDate || booking.date,
-              time: booking.finalTime || booking.time,
-              type: booking.type
-            };
+          if (booking.type === 'create' && booking.appointmentId) {
+            // New booking created
+            bookingChains.set(booking.appointmentId, [booking]);
+          } else if (booking.type === 'update') {
+            // Find which appointment this update belongs to
+            let targetAppointmentId = booking.appointmentId;
             
-            consolidatedBookings.unshift(finalBooking); // Add to beginning to maintain chronological order
-            processedAppointmentIds.add(booking.appointmentId);
+            // If no appointmentId, this is an intermediate update - find the most recent booking
+            if (!targetAppointmentId) {
+              // Look for the most recent booking that could be updated
+              for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
+                const prevBooking = session.bookings[i];
+                if (prevBooking.appointmentId && prevBooking.type !== 'cancellation') {
+                  targetAppointmentId = prevBooking.appointmentId;
+                  break;
+                }
+              }
+            }
+            
+            if (targetAppointmentId) {
+              if (!bookingChains.has(targetAppointmentId)) {
+                bookingChains.set(targetAppointmentId, []);
+              }
+              bookingChains.get(targetAppointmentId).push(booking);
+            }
           }
         }
         
-        if (consolidatedBookings.length > 0) {
+        // Second pass: determine final state for each booking chain
+        for (const [, chain] of bookingChains) {
+          if (chain.length === 0) continue;
+          
+          // Find the final state by looking at the last booking with complete info
+          let finalBooking = null;
+          
+          // Start with the create booking
+          const createBooking = chain.find(b => b.type === 'create');
+          if (createBooking) {
+            finalBooking = {
+              appointmentId: createBooking.appointmentId,
+              serviceName: createBooking.serviceName,
+              date: createBooking.date,
+              time: createBooking.time,
+              type: 'create'
+            };
+          }
+          
+          // Apply updates in order
+          for (const update of chain.filter(b => b.type === 'update')) {
+            if (finalBooking) {
+              // Update the final booking with new information
+              if (update.finalDate) finalBooking.date = update.finalDate;
+              if (update.finalTime) finalBooking.time = update.finalTime;
+              if (update.serviceName) finalBooking.serviceName = update.serviceName;
+              if (update.appointmentId) finalBooking.appointmentId = update.appointmentId;
+            }
+          }
+          
+          if (finalBooking && finalBooking.appointmentId) {
+            finalBookings.push(finalBooking);
+          }
+        }
+        
+        if (finalBookings.length > 0) {
           console.log(
             "📱 Sending consolidated SMS confirmation for bookings:",
-            consolidatedBookings.map(b => b.appointmentId)
+            finalBookings.map(b => b.appointmentId)
           );
           
           await sendConsolidatedSMSConfirmation(
@@ -1110,7 +1153,7 @@ export async function endCall(callSid, params, businessConfig = null) {
               businessId: businessConfig.business.id,
               customerPhone: session.callerPhone,
               customerName: session.customerName,
-              bookings: consolidatedBookings,
+              bookings: finalBookings,
             },
             businessConfig
           );

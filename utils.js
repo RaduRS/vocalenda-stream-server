@@ -1,1401 +1,473 @@
-import WebSocket from "ws";
-import { getConfig } from "./config.js";
+/**
+ * Utility functions and constants for the Vocalenda Stream Server
+ */
+
 import {
-  parseISODate,
-  parseUKDate,
-  parseUKTime,
-  getDayOfWeekName,
-  convert12to24Hour,
-  UK_TIMEZONE,
   formatISODate,
-  getDayOfWeekNumber,
+  getCurrentUKDateTime,
+  getDayOfWeekName,
+  parseISODate,
 } from "./dateUtils.js";
-import { isWithinBusinessHours } from "./utils.js";
-import { db } from "./database.js";
 
-const config = getConfig();
+/**
+ * Get today's date in YYYY-MM-DD format
+ * @returns {string} Today's date in YYYY-MM-DD format
+ */
+export function getTodayDate() {
+  return formatISODate(getCurrentUKDateTime());
+}
 
-// In-memory session store for call context
-const callSessions = new Map();
+/**
+ * Generate system prompt for the AI agent
+ * @param {Object} businessConfig - Business configuration object
+ * @param {Object} callContext - Call context information
+ * @returns {string} Generated system prompt
+ */
+export function generateSystemPrompt(businessConfig, callContext) {
+  const business = businessConfig.business;
+  const services = businessConfig.services;
 
-// Track processed function call IDs to prevent duplicates
-const processedFunctionCalls = new Set();
-const functionCallTimestamps = new Map();
+  // Get today's date in YYYY-MM-DD format
+  const today = getTodayDate();
+  const todayDate = getCurrentUKDateTime();
+  const todayDayName = todayDate.toLocaleDateString("en-GB", {
+    weekday: "long",
+  });
 
-// Clean up old function call IDs every 5 minutes
-setInterval(() => {
-  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-  for (const [functionCallId, timestamp] of functionCallTimestamps.entries()) {
-    if (timestamp < fiveMinutesAgo) {
-      processedFunctionCalls.delete(functionCallId);
-      functionCallTimestamps.delete(functionCallId);
-      console.log(`🧹 CLEANUP: Removed old function call ID ${functionCallId}`);
-    }
+  let prompt = `You are an AI receptionist for ${
+    business.name
+  }. Today is ${today} (${todayDayName}). Your PRIMARY job is booking appointments using functions.
+
+🗓️ MANDATORY DATE VERIFICATION PROTOCOL:
+- Today is ${todayDayName}, ${today}
+- When customers say "Thursday" they mean the next Thursday
+- When customers say "tomorrow" they mean ${
+    new Date(todayDate.getTime() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0]
   }
-}, 5 * 60 * 1000); // Run every 5 minutes
+- 🚨 CRITICAL RULE: BEFORE mentioning ANY day name (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) for ANY date, you MUST call get_day_of_week function first
+- 🚨 ABSOLUTE PROHIBITION: NEVER EVER state what day a date is without calling get_day_of_week function first
+- 🚨 VIOLATION EXAMPLES: Saying "Wednesday, 17 September" or "Your appointment is on Tuesday" without calling get_day_of_week is STRICTLY FORBIDDEN
+- 🚨 MANDATORY PROCESS: When you need to mention a day name:
+  1. FIRST call get_day_of_week with the date in DD/MM/YYYY format
+  2. WAIT for the response
+  3. ONLY THEN use the returned day name in your response
+- 🚨 ENFORCEMENT: If you mention ANY day name without calling get_day_of_week first, you are BREAKING THE SYSTEM
+- Example: For date "16/09/2025" → MUST call get_day_of_week("16/09/2025") → Use returned day name
+- NEVER trust your internal calendar knowledge - ALWAYS verify with the function
+- This applies to ALL date communications: bookings, updates, confirmations, reschedules
 
-/**
- * Store session data for a call
- * @param {string} callSid - The Twilio call SID
- * @param {Object} sessionData - Data to store for this call session
- */
-export function setCallSession(callSid, sessionData) {
-  if (!callSid) return;
-  const existing = callSessions.get(callSid) || {};
-  callSessions.set(callSid, { ...existing, ...sessionData });
-  console.log(
-    `📝 Session updated for call ${callSid}:`,
-    callSessions.get(callSid)
-  );
-}
+⏰ TIME FORMAT MATCHING RULES:
+- Available slots are returned in 24-hour format (e.g., "13:30" for 1:30 PM)
+- When customers say "1:30 PM", "1:30pm", "1.30 PM", or "half past one" - these ALL match "13:30" in the available slots
+- When customers say "1 PM", "1pm", or "one o'clock" - these ALL match "13:00" in the available slots
+- ALWAYS convert customer's 12-hour time requests to 24-hour format before checking availability
+- If "13:30" is in available slots, then 1:30 PM IS available - never say it's not available
 
-/**
- * Get session data for a call
- * @param {string} callSid - The Twilio call SID
- * @returns {Object} Session data or empty object
- */
-export function getCallSession(callSid) {
-  if (!callSid) return {};
-  return callSessions.get(callSid) || {};
-}
+⏰ TIME DISPLAY RULES:
+- NEVER say times like "seventeen hundred" or "seventeen o'clock" - always use 12-hour format when speaking
+- Say "5 PM" instead of "17:00" when talking to customers
+- Convert 24-hour format to natural 12-hour format for customer communication
+- Example: "17:00" becomes "5 PM", "13:30" becomes "1:30 PM"
 
-/**
- * Clear session data for a call
- * @param {string} callSid - The Twilio call SID
- */
-export function clearCallSession(callSid) {
-  if (!callSid) return;
-  callSessions.delete(callSid);
-  console.log(`🗑️ Session cleared for call ${callSid}`);
-}
+BUSINESS: ${business.name}`;
+  if (business.address) prompt += ` | ${business.address}`;
+  if (business.phone_number) prompt += ` | ${business.phone_number}`;
 
-/**
- * Main function call handler that routes function calls to appropriate handlers
- * @param {WebSocket} deepgramWs - The Deepgram WebSocket connection
- * @param {Object} functionCallData - The function call data from Deepgram
- * @param {Object} businessConfig - The business configuration
- */
-export async function handleFunctionCall(
-  deepgramWs,
-  functionCallData,
-  businessConfig,
-  callSid = null,
-  callerPhone = null
-) {
-  // Store caller phone in session if provided
-  if (callSid && callerPhone) {
-    setCallSession(callSid, { callerPhone });
-  }
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
-  console.log(
-    `[${timestamp}] 🔧 Function call received:`,
-    JSON.stringify(functionCallData, null, 2)
-  );
-  console.log(
-    `[${timestamp}] 📋 Function name:`,
-    functionCallData?.function_name
-  );
-  console.log(
-    `[${timestamp}] 📊 Parameters:`,
-    JSON.stringify(functionCallData?.parameters, null, 2)
-  );
-  console.log(`[${timestamp}] 🏢 Business config exists:`, !!businessConfig);
-  console.log(`[${timestamp}] 🌐 WebSocket state:`, deepgramWs?.readyState);
+  prompt += `\n\nSERVICES:`;
+  services.forEach((service) => {
+    prompt += ` ${service.name}(${service.duration_minutes}min)`;
+    if (service.price) prompt += `£${service.price}`;
+    prompt += `,`;
+  });
 
-  try {
-    console.log(
-      "🔧 Function call received:",
-      JSON.stringify(functionCallData, null, 2)
-    );
-    const { function_name, parameters, function_call_id } = functionCallData;
-
-    // Check for duplicate create_booking requests
-    if (function_name === "create_booking" && function_call_id) {
-      if (processedFunctionCalls.has(function_call_id)) {
-        console.log(
-          `🚫 DUPLICATE BOOKING REQUEST DETECTED: ${function_call_id}`
-        );
-        console.log(`⏭️ Skipping duplicate create_booking call`);
-        return {
-          error:
-            "Duplicate booking request detected - booking already processed",
-        };
+  // Add staff information if available
+  const staffMembers = businessConfig.staffMembers || [];
+  if (staffMembers.length > 0) {
+    prompt += `\n\nSTAFF MEMBERS:`;
+    staffMembers.forEach((staff) => {
+      prompt += ` ${staff.name}`;
+      if (staff.specialties && staff.specialties.length > 0) {
+        prompt += ` (${staff.specialties.join(", ")})`;
       }
-      // Mark this function call as processed
-      processedFunctionCalls.add(function_call_id);
-      functionCallTimestamps.set(function_call_id, Date.now());
-      console.log(
-        `✅ TRACKING: Added function call ID ${function_call_id} to processed set`
-      );
-    }
-
-    let result;
-
-    switch (function_name) {
-      case "get_services":
-        console.log("🔧 Processing get_services function call");
-        console.log(
-          "📊 Raw services from config:",
-          businessConfig.services.length,
-          "services found"
-        );
-
-        result = businessConfig.services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          duration: s.duration_minutes,
-          price: s.price,
-          description: s.description,
-        }));
-
-        console.log(
-          "📋 Mapped services result:",
-          JSON.stringify(result, null, 2)
-        );
-        console.log("✅ get_services processing complete");
-        break;
-
-      case "get_staff_members":
-        console.log("👥 Processing get_staff_members function call");
-        console.log(
-          "📊 Raw staff from config:",
-          businessConfig.staffMembers?.length || 0,
-          "staff members found"
-        );
-
-        result = (businessConfig.staffMembers || []).map((staff) => ({
-          id: staff.id,
-          name: staff.name,
-          specialties: staff.specialties || [],
-          working_hours: staff.working_hours,
-        }));
-
-        console.log("👥 Mapped staff result:", JSON.stringify(result, null, 2));
-        console.log("✅ get_staff_members processing complete");
-        break;
-
-      case "get_available_slots":
-        result = await getAvailableSlots(businessConfig, parameters);
-        break;
-
-      case "create_booking":
-        result = await createBooking(businessConfig, parameters, callSid);
-        break;
-
-      case "update_booking":
-        result = await updateBooking(businessConfig, parameters, callSid);
-        break;
-
-      case "cancel_booking":
-        result = await cancelBooking(businessConfig, parameters, callSid);
-        break;
-
-      case "end_call":
-        result = await endCall(callSid, parameters, businessConfig);
-        break;
-
-      case "get_day_of_week":
-        try {
-          console.log("📅 Getting day of week for:", parameters.date);
-          const parsedDate = parseUKDate(parameters.date);
-          const dayName = getDayOfWeekName(parsedDate);
-          const dayNumber = getDayOfWeekNumber(parsedDate);
-
-          console.log(`✅ ${parameters.date} is a ${dayName}`);
-          result = {
-            date: parameters.date,
-            day_of_week: dayName,
-            day_number: dayNumber,
-            formatted: `${dayName}, ${parsedDate.toLocaleDateString("en-GB", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}`,
-          };
-        } catch (error) {
-          console.error("❌ Error getting day of week:", error);
-          result = {
-            error: "Invalid date format. Please use DD/MM/YYYY format.",
-          };
-        }
-        break;
-
-      case "transfer_to_human":
-        result = await transferToHuman(businessConfig, parameters, callSid);
-        break;
-
-      default:
-        result = { error: "Unknown function" };
-    }
-
-    // Send response back to Deepgram
-    const response = {
-      type: "FunctionCallResponse",
-      id: functionCallData.function_call_id,
-      name: function_name,
-      content: JSON.stringify(result), // Deepgram expects content as string
-    };
-
-    console.log(`✅ Sending ${function_name} response to Deepgram`);
-    // Reduced logging for better performance
-
-    try {
-      if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
-        deepgramWs.send(JSON.stringify(response));
-        console.log("✅ Function response sent successfully to Deepgram");
-        console.log("🔄 Waiting for Deepgram to process the response...");
-
-        // Add a small delay to ensure Deepgram processes the response before any KeepAlive
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } else {
-        console.error(
-          "❌ Cannot send function response - Deepgram connection not open"
-        );
-        console.error("   - WebSocket exists:", !!deepgramWs);
-        console.error("   - ReadyState:", deepgramWs?.readyState);
-        throw new Error("Deepgram connection not available");
-      }
-    } catch (sendError) {
-      console.error("❌ Error sending response to Deepgram:", sendError);
-      // Don't throw the error to prevent connection closure
-      console.error("🔧 Continuing despite send error to maintain connection");
-    }
-  } catch (error) {
-    console.error("Error handling function call:", error);
-
-    // Send error response
-    const errorResponse = {
-      type: "FunctionCallResponse",
-      id: functionCallData.function_call_id,
-      name: function_name,
-      content: JSON.stringify({ error: "Function execution failed" }),
-    };
-
-    deepgramWs.send(JSON.stringify(errorResponse));
-  }
-}
-
-/**
- * Get available appointment slots for a given date and service
- * @param {Object} businessConfig - The business configuration
- * @param {Object} params - Parameters including date and service_id
- * @returns {Object} Available slots or error
- */
-export async function getAvailableSlots(businessConfig, params) {
-  const timestamp = new Date().toISOString();
-  console.log(
-    `[${timestamp}] 🚀 STARTING getAvailableSlots with params:`,
-    JSON.stringify(params, null, 2)
-  );
-  console.log(
-    `[${timestamp}] 🏢 Business config:`,
-    businessConfig?.business?.name
-  );
-  console.log(
-    `[${timestamp}] 📋 Services count:`,
-    businessConfig?.services?.length
-  );
-  console.log(
-    `[${timestamp}] 🌐 Site URL:`,
-    config.nextjs?.siteUrl || "Not configured"
-  );
-  console.log(
-    `[${timestamp}] 🔑 Secret exists:`,
-    !!config.nextjs?.internalApiSecret
-  );
-
-  try {
-    console.log(
-      "🗓️ Getting available slots for:",
-      JSON.stringify(params, null, 2)
-    );
-    const { date, service_id } = params;
-    const business = businessConfig.business;
-
-    if (!business?.google_calendar_id) {
-      console.error("❌ No Google Calendar connected for business");
-      return { error: "Calendar not connected" };
-    }
-
-    // Check if the requested date falls within business operating days
-    // This uses the proper UK date parsing and business hours validation
-    try {
-      const parsedDate = parseISODate(date);
-      const businessHoursCheck = isWithinBusinessHours(
-        parsedDate,
-        "09:00",
-        businessConfig
-      );
-
-      if (!businessHoursCheck.isWithin) {
-        console.log(`📅 Business closed: ${businessHoursCheck.message}`);
-        return {
-          slots: [],
-          message: businessHoursCheck.message,
-        };
-      }
-      console.log(`📅 Business open on ${getDayOfWeekName(parsedDate)}`);
-    } catch (error) {
-      console.error("Error checking business hours:", error);
-      // Continue with normal flow if error
-    }
-
-    // Get service details and duration
-    let serviceId = service_id;
-    let service = null;
-
-    if (serviceId) {
-      // First try to find by ID (UUID)
-      service = businessConfig.services.find((s) => s.id === serviceId);
-
-      // If not found by ID, try to find by name (case-insensitive)
-      if (!service) {
-        service = businessConfig.services.find(
-          (s) => s.name.toLowerCase() === serviceId.toLowerCase()
-        );
-        if (service) {
-          serviceId = service.id; // Use the actual UUID
-          console.log(
-            `📋 Found service by name '${service_id}' -> ID: ${serviceId}`
-          );
-        }
-      }
-
-      if (service) {
-        console.log(
-          "📋 Using service:",
-          service.name,
-          "(Duration:",
-          service.duration_minutes,
-          "minutes)"
-        );
-      } else {
-        console.error("❌ Service not found with ID/Name:", serviceId);
-        console.error(
-          "📋 Available services:",
-          businessConfig.services.map((s) => `${s.name} (${s.id})`)
-        );
-        return {
-          error: `Service not found: ${serviceId}. Available services: ${businessConfig.services
-            .map((s) => s.name)
-            .join(", ")}`,
-        };
-      }
-    } else if (businessConfig.services.length > 0) {
-      // Use first available service as default
-      service = businessConfig.services[0];
-      serviceId = service.id;
-      console.log(
-        "📋 Using default service:",
-        service.name,
-        "(Duration:",
-        service.duration_minutes,
-        "minutes)"
-      );
-    } else {
-      console.error("❌ No services available");
-      return { error: "No services available" };
-    }
-
-    // Call the new simplified calendar availability API
-    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
-
-    console.log(`[${timestamp}] 🌐 About to make API call:`);
-    console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
-    console.log(
-      `[${timestamp}] 🔑 Secret exists:`,
-      !!config.nextjs?.internalApiSecret
-    );
-    console.log(`[${timestamp}] 🏢 Business ID:`, business.id);
-    console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
-    console.log(`[${timestamp}] 📅 Date:`, date);
-
-    const response = await fetch(apiUrl, {
-      method: "GET",
-      headers: {
-        "x-internal-secret": config.nextjs.internalApiSecret,
-      },
+      prompt += `,`;
     });
-
-    console.log(`[${timestamp}] 📡 API Response status:`, response.status);
-    console.log(`[${timestamp}] 📡 API Response ok:`, response.ok);
-
-    const result = await response.json();
-    console.log(
-      `[${timestamp}] 📅 Calendar API response:`,
-      JSON.stringify(result, null, 2)
-    );
-    console.log(`[${timestamp}] 📊 Response type:`, typeof result);
-    console.log(`[${timestamp}] 📊 Has slots:`, !!result.slots);
-    console.log(`[${timestamp}] 📊 Slots count:`, result.slots?.length || 0);
-
-    if (!response.ok) {
-      console.error("❌ Calendar API error:", result);
-      return { error: result.error || "Failed to get available slots" };
-    }
-
-    // Extract just the time strings from the slots
-    const availableTimes = result.slots?.map((slot) => slot.startTime) || [];
-    console.log("✅ Available time slots:", availableTimes);
-
-    return {
-      available_slots: availableTimes,
-    };
-  } catch (error) {
-    console.error("❌ Error getting available slots:", error);
-    return { error: "Failed to get available slots" };
+    prompt += `\n\n📋 STAFF BOOKING NOTES:\n- Customers can request specific staff members by name\n- If no preference is mentioned, any available staff member can provide the service\n- NEVER ask about staff preferences unless customer specifically mentions wanting a particular staff member\n- Only discuss staff options if customer asks about specific staff members`;
   }
+
+  // Add business hours information if available
+  const businessHours = businessConfig.config?.business_hours;
+  if (businessHours) {
+    prompt += `\n\n🕐 BUSINESS HOURS:`;
+    if (businessHours.monday)
+      prompt += ` Mon: ${businessHours.monday.open}-${businessHours.monday.close}`;
+    if (businessHours.tuesday)
+      prompt += ` Tue: ${businessHours.tuesday.open}-${businessHours.tuesday.close}`;
+    if (businessHours.wednesday)
+      prompt += ` Wed: ${businessHours.wednesday.open}-${businessHours.wednesday.close}`;
+    if (businessHours.thursday)
+      prompt += ` Thu: ${businessHours.thursday.open}-${businessHours.thursday.close}`;
+    if (businessHours.friday)
+      prompt += ` Fri: ${businessHours.friday.open}-${businessHours.friday.close}`;
+    if (businessHours.saturday)
+      prompt += ` Sat: ${businessHours.saturday.open}-${businessHours.saturday.close}`;
+    if (businessHours.sunday)
+      prompt += ` Sun: ${businessHours.sunday.open}-${businessHours.sunday.close}`;
+    prompt += `\n\n⚠️ BUSINESS HOURS VALIDATION:\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
+  }
+
+  prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
+1. AFTER getting customer name + service interest → ASK for their preferred time
+2. VALIDATE requested time is within business hours BEFORE checking availability
+3. Check if preferred time is available using get_available_slots (only if within business hours)
+4. If available, confirm and book directly. If not, suggest alternatives
+5. Use create_booking to confirm appointments
+6. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
+7. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
+8. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
+9. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
+
+⚡ EXACT WORKFLOW:
+Customer: "I want a haircut tomorrow"
+You: "Great! Your name?"
+Customer: "John"
+You: "Perfect John! What time would you prefer for your haircut tomorrow?"
+Customer: "10am"
+[SILENTLY call get_available_slots - DO NOT say "let me check"]
+If available: "Perfect! I can book you for 10am. Shall I confirm that?"
+If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
+
+🎯 BOOKING STRATEGY:
+- Always ask for preferred time first
+- SILENTLY check availability - never announce you're checking
+- Only show alternatives if preferred time unavailable
+- Never list all available slots unless customer asks
+- Book immediately if preferred time is free
+
+📝 BOOKING UPDATES & CANCELLATIONS:
+- For security, ALWAYS require EXACT customer name and current appointment details (date & time) to update or cancel
+- Phone number verification is automatic - if caller's phone doesn't match booking phone, inform them they need to call from the original number
+- Use update_booking to change appointment time, date, or service
+- Use cancel_booking to cancel appointments
+- If phone verification fails, explain: "For security, you'll need to call from the phone number used to make the original booking"
+- Never update/cancel without exact verification details
+
+🗓️ CRITICAL DATE CHANGE DETECTION:
+- When customer mentions a different DAY (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday), this is a DATE change
+- Examples requiring BOTH new_date AND new_time:
+  * "Move it to 2:30 PM on Thursday" = new_time: "14:30" + new_date: [Thursday's date]
+  * "Change it to Friday at 10 AM" = new_time: "10:00" + new_date: [Friday's date]
+  * "Can we do Wednesday instead at 3 PM" = new_time: "15:00" + new_date: [Wednesday's date]
+- ALWAYS convert day names to YYYY-MM-DD format for new_date parameter
+- If customer says a day name different from current booking day, you MUST include new_date parameter
+- Time-only changes: "Move it to 3 PM" (same day) = only new_time: "15:00"
+- Date-only changes: "Move it to Thursday" (same time) = only new_date: [Thursday's date]
+
+🔒 SECURITY RULES:
+- NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
+- NEVER announce function calls or mention JSON parameters to customers
+- NEVER say things like "Let me check availability" or "I'm calling the booking function"
+- Execute all functions silently in the background
+- Use get_day_of_week function silently to verify dates without announcing - just say the correct day naturally in conversation
+
+🔄 SAME-CALL OPERATIONS (CRITICAL):
+- If a customer JUST made a booking in this same call and immediately wants to update/cancel it, DO NOT ask for their name, date, or time again
+- The system automatically remembers their booking details from the same call session
+- Simply proceed with the update/cancellation using the stored information
+- Example: Customer says "Actually, can I change that to 3 PM instead?" → Just call update_booking with the new time
+- Example: Customer says "Never mind, cancel that appointment" → Just call cancel_booking immediately
+
+⚡ SESSION DATA PRIORITY:
+- SAME CALL = Use stored session data automatically, no questions asked
+- NEW CALL = Ask for verification details (name, date, time)
+- This creates a seamless experience for immediate changes after booking
+
+🔚 CALL ENDING:
+- ONLY end the call when the customer explicitly indicates they want to end the conversation (e.g., "goodbye", "that's all", "thank you, bye")
+- NEVER automatically end the call after completing a booking - always ask if there's anything else you can help with
+- After booking completion, say: "Your appointment is confirmed! Is there anything else I can help you with today?"
+- To end the call, you MUST first say a polite, concluding farewell phrase
+- Your absolute final action in the conversation MUST be to call/run/trigger the end_call function for ending the call
+- Example Farewell Sequence:
+  - Customer says: "That's all, thank you!"
+  - You say: "Thank you for calling [business name], have a great day!"
+  - You immediately run/trigger: end_call function without actually saying it
+
+🚨 CRITICAL BOOKING SUCCESS PROTOCOL:
+- When you successfully book an appointment, that time slot is RESERVED for the customer
+- NEVER attempt to book the same time slot again in the same call
+- NEVER check availability for a slot you just successfully booked - it's already confirmed
+- If customer mentions the same time after a successful booking, assume they're asking about something else (updates, additional services, etc.)
+- Example: After booking 12 PM successfully, if customer says "12 PM" again, ask "Would you like to update your 12 PM appointment or book an additional appointment?"
+- REMEMBER: A successful booking response means the appointment is CONFIRMED - do not verify or double-check it
+
+Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
+
+🚨 CRITICAL: NEVER output JSON, code blocks, or raw parameters. When you need to use a function, execute it directly from your available functions without showing any JSON or parameters to the customer. The system will handle the function execution automatically.
+
+🤝 HUMAN HANDOFF PROTOCOL:
+- If a customer requests to speak to a human, manager, or real person, use the transfer_to_human function
+- If a customer has a complex issue that requires human intervention, offer to transfer them
+- Common transfer triggers: "Can I speak to someone?", "I need to talk to a human", "Transfer me to a manager", "This is too complicated"
+- When transferring, say: "I'll transfer you to one of our team members right away. Please hold on."
+- After saying the transfer message, immediately call the transfer_to_human function
+- NEVER refuse a human handoff request - always accommodate customer preferences`;
+
+  return prompt;
 }
 
 /**
- * Create a new booking by calling the internal Next.js API endpoint
- * @param {Object} businessConfig - The business configuration
- * @param {Object} params - Booking parameters including customer info, service, date, time
- * @returns {Object} Booking result or error
+ * Get available functions for the AI agent
+ * @returns {Array} Array of function definitions
  */
-export async function createBooking(businessConfig, params, callSid = null) {
+/**
+ * Check if a requested time is within business hours
+ * @param {Object} businessConfig - Business configuration object
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @param {string} time - Time in HH:MM format (24-hour)
+ * @returns {Object} { isWithinHours: boolean, message?: string }
+ */
+export function isWithinBusinessHours(date, time, businessConfig) {
+  const businessHours = businessConfig.config?.business_hours;
+
+  if (!businessHours) {
+    // If no business hours configured, allow all times
+    return { isWithin: true };
+  }
+
   try {
-    console.log(
-      "🎯 createBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
-    console.log(
-      "📋 Available services:",
-      businessConfig.services.map((s) => ({ id: s.id, name: s.name }))
-    );
+    // Parse the date using UK date utilities to get day of week
+    const parsedDate = typeof date === "string" ? parseISODate(date) : date;
+    const dayName = getDayOfWeekName(parsedDate).toLowerCase();
 
-    const { customer_name, service_id, date, time, customer_phone } = params;
+    const dayHours = businessHours[dayName];
 
-    // Get caller phone from session if not provided in params
-    const session = getCallSession(callSid);
-    const phoneToUse = customer_phone || session.callerPhone;
-
-    // Validate required parameters
-    if (!customer_name || !service_id || !date || !time) {
-      console.error("❌ Missing required booking parameters:", {
-        customer_name,
-        service_id,
-        date,
-        time,
-      });
+    if (!dayHours || !dayHours.open || !dayHours.close) {
       return {
-        error:
-          "Missing required information: name, service, date, and time are required",
+        isWithin: false,
+        message: `We're closed on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
       };
     }
 
-    // Find the service (try by ID first, then by name as fallback)
-    let service = businessConfig.services.find((s) => s.id === service_id);
-    if (!service) {
-      // Try to find by name (case-insensitive)
-      service = businessConfig.services.find(
-        (s) => s.name.toLowerCase() === service_id.toLowerCase()
-      );
-      if (service) {
-        console.log(
-          `📋 Booking - Found service by name '${service_id}' -> ID: ${service.id}`
-        );
-      }
-    }
-    if (!service) {
-      console.error("❌ Service not found. Service ID/Name:", service_id);
-      console.error(
-        "📋 Available services:",
-        businessConfig.services.map((s) => `${s.id}: ${s.name}`)
-      );
+    // Convert times to minutes for comparison
+    const [requestHour, requestMin] = time.split(":").map(Number);
+    const requestMinutes = requestHour * 60 + requestMin;
+
+    const [openHour, openMin] = dayHours.open.split(":").map(Number);
+    const openMinutes = openHour * 60 + openMin;
+
+    const [closeHour, closeMin] = dayHours.close.split(":").map(Number);
+    const closeMinutes = closeHour * 60 + closeMin;
+
+    if (requestMinutes < openMinutes || requestMinutes >= closeMinutes) {
       return {
-        error: `Service not found. Available services: ${businessConfig.services
-          .map((s) => s.name)
-          .join(", ")}`,
+        isWithin: false,
+        message: `We're open ${dayHours.open}-${dayHours.close} on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
       };
     }
-    console.log(
-      "✅ Booking - Service found:",
-      service.name,
-      "(ID:",
-      service.id,
-      ")"
-    );
 
-    // Store customer info in session for future use
-    if (callSid && customer_name) {
-      const session = getCallSession(callSid);
-      const bookings = session.bookings || [];
-      
-      // Add this booking to the list (will be updated with appointment ID later)
-      const newBooking = {
-        customerName: customer_name,
-        date: date,
-        time: time,
-        serviceId: service_id,
-        serviceName: service.name,
-        serviceDuration: service.duration_minutes,
-        appointmentId: null, // Will be set after successful creation
-        type: 'create'
-      };
-      
-      bookings.push(newBooking);
-      
-      setCallSession(callSid, {
-        customerName: customer_name,
-        lastBookingDate: date,
-        lastBookingTime: time,
-        lastServiceId: service_id,
-        lastServiceName: service.name,
-        lastServiceDuration: service.duration_minutes,
-        bookings: bookings
-      });
-    }
+    return { isWithin: true };
+  } catch (error) {
+    console.error("Error checking business hours:", error);
+    return { isWithin: true }; // Default to allowing if error
+  }
+}
 
-    // Calculate start and end times with proper UK timezone handling
-    const business = businessConfig.business;
-    const businessTimezone = business.timezone || UK_TIMEZONE;
-
-    console.log(
-      `🕐 Creating appointment for ${date} at ${time} in timezone: ${businessTimezone}`
-    );
-
-    // Parse and validate the date and time using UK standards
-    let parsedDate, parsedTime;
-    try {
-      parsedDate = parseISODate(date);
-      // Convert 12-hour format to 24-hour if needed
-      const timeIn24h =
-        time.includes("AM") ||
-        time.includes("PM") ||
-        time.includes("am") ||
-        time.includes("pm")
-          ? convert12to24Hour(time)
-          : time;
-      parsedTime = parseUKTime(timeIn24h, parsedDate);
-
-      // Verify the day of the week is correct
-      const dayOfWeek = getDayOfWeekName(parsedDate);
-      console.log(
-        `📅 Parsed date: ${formatISODate(parsedDate)} (${dayOfWeek})`
-      );
-    } catch (error) {
-      console.error(`❌ Date/time parsing error:`, error.message);
-      return { error: `Invalid date or time format: ${error.message}` };
-    }
-
-    // Convert time to 24-hour format if needed
-    const timeIn24h =
-      time.includes("AM") ||
-      time.includes("PM") ||
-      time.includes("am") ||
-      time.includes("pm")
-        ? convert12to24Hour(time)
-        : time;
-
-    // Calculate end time by adding service duration
-    const [hours, minutes] = timeIn24h.split(":").map(Number);
-    const startMinutes = hours * 60 + minutes;
-    const endMinutes = startMinutes + service.duration_minutes;
-    const endHours = Math.floor(endMinutes / 60);
-    const endMins = endMinutes % 60;
-    const endTimeIn24h = `${endHours.toString().padStart(2, "0")}:${endMins
-      .toString()
-      .padStart(2, "0")}`;
-
-    // Send separate date and time components to avoid timezone conversion issues
-    const startTime = `${timeIn24h}:00`;
-    const endTimeString = `${endTimeIn24h}:00`;
-
-    console.log(`🕐 Appointment datetime (UK local): ${startTime}`);
-    console.log(`🕐 Business timezone: ${businessTimezone}`);
-    console.log(`🕐 Start time: ${startTime}`);
-    console.log(`🕐 End time: ${endTimeString}`);
-    console.log(`📅 Day of week: ${getDayOfWeekName(parsedDate)}`);
-
-    // CRITICAL: Check availability before creating booking to prevent double bookings
-    console.log("🔍 Checking slot availability before booking...");
-    try {
-      const availabilityResponse = await fetch(
-        `${
-          config.nextjs.siteUrl || "http://localhost:3000"
-        }/api/calendar/availability`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-internal-secret": config.nextjs.internalApiSecret,
+export function getAvailableFunctions() {
+  return [
+    {
+      name: "get_services",
+      description: "Get list of available services",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "get_staff_members",
+      description:
+        "Get list of available staff members who can provide services",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "get_day_of_week",
+      description:
+        "MANDATORY: Get the day of the week for a given date. You MUST call this function BEFORE mentioning ANY day name (Monday, Tuesday, etc.) for ANY date. This is REQUIRED for ALL date communications including bookings, updates, confirmations, and reschedules. NEVER state what day a date is without calling this function first.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Date in DD/MM/YYYY format (e.g., 16/09/2025 for September 16, 2025)",
           },
-          body: JSON.stringify({
-            businessId: businessConfig.business.id,
-            serviceId: service.id,
-            appointmentDate: date,
-            startTime: startTime,
-            endTime: endTimeString,
-          }),
-        }
-      );
-
-      if (!availabilityResponse.ok) {
-        console.error(
-          "❌ Failed to check availability:",
-          availabilityResponse.status
-        );
-        return {
-          error: "Unable to verify slot availability. Please try again.",
-        };
-      }
-
-      const availabilityResult = await availabilityResponse.json();
-      console.log(
-        "📋 Availability check result:",
-        JSON.stringify(availabilityResult, null, 2)
-      );
-
-      if (!availabilityResult.available) {
-        console.log("❌ Slot not available - preventing double booking");
-        return {
-          error: `Sorry, the ${time} slot on ${date} is no longer available. Please choose a different time.`,
-        };
-      }
-
-      console.log("✅ Slot is available - proceeding with booking");
-    } catch (error) {
-      console.error("❌ Error checking availability:", error);
-      return { error: "Unable to verify slot availability. Please try again." };
-    }
-
-    // Prepare booking data for the Next.js API
-    const bookingData = {
-      businessId: businessConfig.business.id,
-      serviceId: service.id, // Use the actual service UUID, not the name
-      appointmentDate: date,
-      startTime: startTime,
-      endTime: endTimeString,
-      customerName: customer_name,
-      customerPhone: phoneToUse || null,
-      customerEmail: null, // Voice calls don't typically capture email
-      notes: `Voice booking - Customer: ${customer_name}${
-        phoneToUse ? ` - Phone: ${phoneToUse}` : ""
-      }`,
-    };
-
-    console.log("📞 Calling internal Next.js booking API...");
-    console.log(
-      "🔗 API URL:",
-      `${config.nextjs.siteUrl || "http://localhost:3000"}/api/internal/booking`
-    );
-    console.log("📦 Booking data:", JSON.stringify(bookingData, null, 2));
-
-    // Call the internal Next.js booking API endpoint
-    const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
-    const response = await fetch(`${baseUrl}/api/internal/booking`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": config.nextjs.internalApiSecret,
+        },
+        required: ["date"],
       },
-      body: JSON.stringify(bookingData),
-    });
-
-    console.log(
-      "📡 API Response status:",
-      response.status,
-      response.statusText
-    );
-
-    const result = await response.json();
-    console.log("📋 API Response body:", JSON.stringify(result, null, 2));
-
-    if (!response.ok) {
-      console.error("❌ Booking API error:", result);
-      return { error: result.error || "Failed to create booking" };
-    }
-
-    console.log(
-      "✅ Appointment created successfully via API:",
-      result.appointmentId
-    );
-    console.log("📅 Calendar event ID:", result.calendarEventId || "None");
-
-    // Update call log with customer name if we have a call SID
-    try {
-      if (callSid && customer_name) {
-        console.log(
-          `📞 Updating call log with customer name: ${customer_name}`
-        );
-        await db.updateCallCustomer(callSid, customer_name);
-        console.log(`✅ Call log updated with customer name: ${callSid}`);
-      }
-    } catch (error) {
-      console.error("❌ Failed to update call log with customer name:", error);
-      // Don't fail the booking if call logging fails
-    }
-
-    // Store appointment ID in session for SMS confirmation
-    if (callSid && result.appointmentId) {
-      const session = getCallSession(callSid);
-      const bookings = session.bookings || [];
-      
-      // Update the most recent booking with the appointment ID
-      if (bookings.length > 0) {
-        const lastBooking = bookings[bookings.length - 1];
-        if (lastBooking.appointmentId === null) {
-          lastBooking.appointmentId = result.appointmentId;
-        }
-      }
-      
-      setCallSession(callSid, {
-        lastAppointmentId: result.appointmentId,
-        lastServiceDuration: service.duration_minutes,
-        bookings: bookings
-      });
-      console.log(
-        `📋 Stored appointment ID in session: ${result.appointmentId}`
-      );
-    }
-
-    const successMessage = `✅ BOOKING CONFIRMED: Appointment successfully booked for ${customer_name} on ${date} at ${time} for ${service.name}. Your appointment is confirmed and secured.`;
-    const calendarNote = result.calendarEventId
-      ? " Event has been added to your Google Calendar."
-      : "";
-
-    return {
-      success: true,
-      appointment_id: result.appointmentId,
-      calendar_event_id: result.calendarEventId,
-      message: successMessage + calendarNote,
-    };
-  } catch (error) {
-    console.error("Error in createBooking:", error);
-    return { error: "Booking failed" };
-  }
-}
-
-/**
- * Update an existing booking
- * @param {Object} businessConfig - The business configuration
- * @param {Object} params - Parameters including customer details and new booking info
- * @returns {Object} Update result or error
- */
-export async function updateBooking(businessConfig, params, callSid = null) {
-  try {
-    console.log(
-      "📝 updateBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
-
-    const {
-      customer_name,
-      current_date,
-      current_time,
-      new_date,
-      new_time,
-      new_service_id,
-    } = params;
-
-    // Get session data to fill in missing customer information
-    const session = getCallSession(callSid);
-    console.log("📋 Session data:", session);
-
-    // Use session data as fallback for missing information
-    const customerNameToUse = customer_name || session.customerName;
-    const currentDateToUse = current_date || session.lastBookingDate;
-    const currentTimeToUse = current_time || session.lastBookingTime;
-
-    console.log("🔄 Using customer info:", {
-      customerName: customerNameToUse,
-      currentDate: currentDateToUse,
-      currentTime: currentTimeToUse,
-    });
-
-    const business = businessConfig.business;
-
-    if (!business?.google_calendar_id) {
-      console.error("❌ No Google Calendar connected for business");
-      return { error: "Calendar not connected" };
-    }
-
-    // Get caller phone from session for verification
-    const callerPhone = session?.callerPhone;
-
-    if (!callerPhone) {
-      console.error("❌ No caller phone available for verification");
-      return { error: "Phone verification required for updates" };
-    }
-
-    // Enhanced phone verification message for different numbers
-    console.log(`📞 Caller phone: ${callerPhone}`);
-    console.log(`👤 Customer: ${customerNameToUse}`);
-    console.log(`📅 Booking: ${currentDateToUse} at ${currentTimeToUse}`);
-
-    // Prepare request body with only defined values
-    const requestBody = {
-      business_id: business.id,
-      customer_name: customerNameToUse,
-      current_date: currentDateToUse,
-      current_time: currentTimeToUse,
-      caller_phone: callerPhone,
-    };
-
-    // Update session with new booking details if provided
-    if (callSid && (new_date || new_time || new_service_id)) {
-      const session = getCallSession(callSid);
-      const bookings = session.bookings || [];
-      
-      // Add this update to the bookings array
-      const updateBooking = {
-        customerName: customerNameToUse,
-        currentDate: currentDateToUse,
-        currentTime: currentTimeToUse,
-        newDate: new_date,
-        newTime: new_time,
-        newServiceId: new_service_id,
-        type: 'update'
-      };
-      
-      bookings.push(updateBooking);
-      
-      const sessionUpdate = {
-        bookings: bookings
-      };
-      if (new_date) sessionUpdate.lastBookingDate = new_date;
-      if (new_time) sessionUpdate.lastBookingTime = new_time;
-      if (new_service_id) sessionUpdate.lastServiceId = new_service_id;
-      setCallSession(callSid, sessionUpdate);
-    }
-
-    // Only include new values if they are defined
-    if (new_date !== undefined) requestBody.new_date = new_date;
-    if (new_time !== undefined) requestBody.new_time = new_time;
-    if (new_service_id !== undefined)
-      requestBody.new_service_id = new_service_id;
-
-    console.log(
-      "📦 Update request body:",
-      JSON.stringify(requestBody, null, 2)
-    );
-
-    // Call the internal Next.js API to update the booking
-    const response = await fetch(
-      `${config.nextjs.siteUrl}/api/voice/update-booking`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Internal-Secret": config.nextjs.internalApiSecret,
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ Update booking API error:", response.status, errorText);
-      return {
-        error: `Failed to update booking: ${errorText}`,
-      };
-    }
-
-    const result = await response.json();
-    console.log("✅ Booking updated successfully:", result);
-
-    // Update the booking in the session with final details
-    if (callSid && result.booking) {
-      const session = getCallSession(callSid);
-      const bookings = session.bookings || [];
-      
-      // Update the most recent update booking with final details
-      if (bookings.length > 0) {
-        const lastBooking = bookings[bookings.length - 1];
-        if (lastBooking.type === 'update') {
-          lastBooking.finalDate = result.booking.date;
-          lastBooking.finalTime = result.booking.start_time;
-          lastBooking.appointmentId = result.booking.id;
-          lastBooking.serviceName = result.booking.service_name;
-        }
-      }
-      
-      setCallSession(callSid, { bookings: bookings });
-    }
-
-    return {
-      success: true,
-      message: `Booking updated successfully for ${customer_name}`,
-      booking: result.booking,
-    };
-  } catch (error) {
-    console.error("❌ Error updating booking:", error);
-    return {
-      error: `Failed to update booking: ${error.message}`,
-    };
-  }
-}
-
-/**
- * Cancel an existing booking
- * @param {Object} businessConfig - The business configuration
- * @param {Object} params - Parameters including customer details and booking info
- * @returns {Object} Cancellation result or error
- */
-export async function cancelBooking(businessConfig, params, callSid = null) {
-  try {
-    console.log(
-      "❌ cancelBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
-
-    const { customer_name, date, time, reason } = params;
-    const business = businessConfig.business;
-
-    if (!business?.google_calendar_id) {
-      console.error("❌ No Google Calendar connected for business");
-      return { error: "Calendar not connected" };
-    }
-
-    // Get session data to fill in missing customer information
-    const session = getCallSession(callSid);
-    console.log("📋 Session data for cancellation:", session);
-
-    // Use session data as fallback for missing information
-    const customerNameToUse = customer_name || session.customerName;
-    const dateToUse = date || session.lastBookingDate;
-    const timeToUse = time || session.lastBookingTime;
-    const callerPhone = session?.callerPhone;
-
-    console.log("🔄 Using booking info for cancellation:", {
-      customerName: customerNameToUse,
-      date: dateToUse,
-      time: timeToUse,
-    });
-
-    if (!callerPhone) {
-      console.error("❌ No caller phone available for verification");
-      return { error: "Phone verification required for cancellations" };
-    }
-
-    // Enhanced phone verification message for different numbers
-    console.log(`📞 Caller phone: ${callerPhone}`);
-    console.log(`👤 Customer: ${customerNameToUse}`);
-    console.log(`📅 Booking: ${dateToUse} at ${timeToUse}`);
-
-    // Call the internal Next.js API to cancel the booking
-    const response = await fetch(
-      `${config.nextjs.siteUrl}/api/voice/cancel-booking`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Internal-Secret": config.nextjs.internalApiSecret,
-        },
-        body: JSON.stringify({
-          business_id: business.id,
-          customer_name: customerNameToUse,
-          date: dateToUse,
-          time: timeToUse,
-          reason: reason || "Customer requested cancellation",
-          caller_phone: callerPhone,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ Cancel booking API error:", response.status, errorText);
-      return {
-        error: `Failed to cancel booking: ${errorText}`,
-      };
-    }
-
-    const result = await response.json();
-    console.log("✅ Booking cancelled successfully:", result);
-
-    // Track the cancellation in the bookings array
-    if (callSid) {
-      const session = getCallSession(callSid);
-      const bookings = session.bookings || [];
-      
-      const cancellation = {
-        customerName: customerNameToUse,
-        date: dateToUse,
-        time: timeToUse,
-        reason: reason || "Customer requested cancellation",
-        type: 'cancellation',
-        appointmentId: result.booking?.id
-      };
-      
-      bookings.push(cancellation);
-      
-      setCallSession(callSid, { 
-        bookings: bookings,
-        bookingCancelled: true 
-      });
-      console.log("📝 Tracked cancellation in session - no SMS will be sent");
-    }
-
-    return {
-      success: true,
-      message: `Booking cancelled successfully for ${customer_name}`,
-      booking: result.booking,
-    };
-  } catch (error) {
-    console.error("❌ Error cancelling booking:", error);
-    return {
-      error: `Failed to cancel booking: ${error.message}`,
-    };
-  }
-}
-
-/**
- * End the current Twilio call
- * @param {string} callSid - The Twilio call SID to terminate
- * @param {Object} params - Parameters including reason for ending the call
- * @param {Object} businessConfig - The business configuration for SMS sending
- * @returns {Object} Result of call termination or error
- */
-export async function endCall(callSid, params, businessConfig = null) {
-  try {
-    console.log(
-      "📞 endCall called with params:",
-      JSON.stringify(params, null, 2)
-    );
-    console.log("📞 Call SID:", callSid);
-
-    const { reason } = params;
-
-    if (!callSid) {
-      console.error("❌ No callSid available to end call");
-      return { error: "Call ID not available" };
-    }
-
-    // Get session data before clearing it
-    const session = getCallSession(callSid);
-    console.log("📋 Session data before ending call:", session);
-
-    // Send consolidated SMS with all bookings made during the call
-    if (session.bookings && session.bookings.length > 0 && session.callerPhone && businessConfig && !session.bookingCancelled) {
-      try {
-        // Track booking evolution: group by appointment chains
-        const bookingChains = new Map(); // appointmentId -> array of booking states
-        const finalBookings = [];
-        
-        // First pass: group bookings by appointment ID and track evolution
-        for (const booking of session.bookings) {
-          if (booking.type === 'cancellation') continue;
-          
-          if (booking.type === 'create' && booking.appointmentId) {
-            // New booking created
-            bookingChains.set(booking.appointmentId, [booking]);
-          } else if (booking.type === 'update') {
-            // Find which appointment this update belongs to
-            let targetAppointmentId = booking.appointmentId;
-            
-            // If no appointmentId, this is an intermediate update - find the most recent booking
-            if (!targetAppointmentId) {
-              // Look for the most recent booking that could be updated
-              for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
-                const prevBooking = session.bookings[i];
-                if (prevBooking.appointmentId && prevBooking.type !== 'cancellation') {
-                  targetAppointmentId = prevBooking.appointmentId;
-                  break;
-                }
-              }
-            }
-            
-            if (targetAppointmentId) {
-              if (!bookingChains.has(targetAppointmentId)) {
-                bookingChains.set(targetAppointmentId, []);
-              }
-              bookingChains.get(targetAppointmentId).push(booking);
-            }
-          }
-        }
-        
-        // Second pass: determine final state for each booking chain
-        for (const [, chain] of bookingChains) {
-          if (chain.length === 0) continue;
-          
-          // Find the final state by looking at the last booking with complete info
-          let finalBooking = null;
-          
-          // Start with the create booking
-          const createBooking = chain.find(b => b.type === 'create');
-          if (createBooking) {
-            finalBooking = {
-              appointmentId: createBooking.appointmentId,
-              serviceName: createBooking.serviceName,
-              date: createBooking.date,
-              time: createBooking.time,
-              type: 'create'
-            };
-          }
-          
-          // Apply updates in order
-          for (const update of chain.filter(b => b.type === 'update')) {
-            if (finalBooking) {
-              // Update the final booking with new information
-              if (update.finalDate) finalBooking.date = update.finalDate;
-              if (update.finalTime) finalBooking.time = update.finalTime;
-              if (update.serviceName) finalBooking.serviceName = update.serviceName;
-              if (update.appointmentId) finalBooking.appointmentId = update.appointmentId;
-            }
-          }
-          
-          if (finalBooking && finalBooking.appointmentId) {
-            finalBookings.push(finalBooking);
-          }
-        }
-        
-        if (finalBookings.length > 0) {
-          console.log(
-            "📱 Sending consolidated SMS confirmation for bookings:",
-            finalBookings.map(b => b.appointmentId)
-          );
-          
-          await sendConsolidatedSMSConfirmation(
-            {
-              businessId: businessConfig.business.id,
-              customerPhone: session.callerPhone,
-              customerName: session.customerName,
-              bookings: finalBookings,
-            },
-            businessConfig
-          );
-          console.log("✅ Consolidated SMS confirmation sent successfully");
-        }
-      } catch (smsError) {
-        console.error("❌ Failed to send consolidated SMS confirmation:", smsError);
-        // Don't fail the call ending if SMS fails
-      }
-    } else if (session.bookingCancelled) {
-      console.log("🚫 Skipping SMS confirmation - booking was cancelled in this call");
-    }
-
-    // Initialize Twilio client
-    const twilio = (await import("twilio")).default(
-      config.twilio.accountSid,
-      config.twilio.authToken
-    );
-
-    console.log(`📞 Attempting to end call with SID: ${callSid}`);
-    console.log(`📝 Reason: ${reason}`);
-
-    // Update the call to completed status
-    const call = await twilio.calls(callSid).update({
-      status: "completed",
-    });
-
-    console.log(`✅ Call ended successfully:`, call.status);
-
-    // Clear call session when call ends
-    clearCallSession(callSid);
-
-    return {
-      success: true,
-      message: `Call ended: ${reason}`,
-      callSid: callSid,
-      status: call.status,
-    };
-  } catch (error) {
-    console.error("❌ Error ending call:", error);
-    return { error: "Failed to end call" };
-  }
-}
-
-/**
- * Transfer call to human representative
- * @param {Object} businessConfig - The business configuration
- * @param {Object} params - Parameters for the transfer
- * @param {string} callSid - The Twilio call SID
- * @returns {Object} Transfer result
- */
-export async function transferToHuman(businessConfig, params, callSid) {
-  try {
-    console.log("📞 Processing human transfer request...");
-    console.log("📞 Transfer params:", JSON.stringify(params, null, 2));
-    console.log("📞 Call SID:", callSid);
-
-    // Get bypass phone number from business config
-    const bypassPhoneNumber = businessConfig.config?.bypass_phone_number;
-
-    if (!bypassPhoneNumber) {
-      console.error("❌ No bypass phone number configured for business");
-      return {
-        success: false,
-        error: "Human transfer not available - no phone number configured",
-        message:
-          "I apologize, but human transfer is not currently available. Please try calling back later or leave a message.",
-      };
-    }
-
-    console.log("📞 Bypass phone number found:", bypassPhoneNumber);
-
-    // Log the transfer request
-    console.log(
-      `🔄 Initiating transfer from AI to human at ${bypassPhoneNumber}`
-    );
-
-    // Get caller information from session
-    const session = getCallSession(callSid);
-    const callerPhone = session?.callerPhone || "Unknown";
-
-    console.log(`📞 Caller: ${callerPhone} requesting human transfer`);
-
-    // Implement Twilio call transfer using REST API
-    if (!config.twilio.accountSid || !config.twilio.authToken) {
-      console.error("❌ Twilio credentials not configured");
-      return {
-        success: false,
-        error: "Call transfer service is not properly configured",
-        message:
-          "I apologize, but call transfer is not properly configured. Please try calling back later.",
-      };
-    }
-
-    // Create Twilio client
-    const twilio = (await import("twilio")).default(
-      config.twilio.accountSid,
-      config.twilio.authToken
-    );
-
-    // Update the call to transfer it to the bypass number
-    // This will redirect the call to the new number
-    const siteUrl = config.nextjs.siteUrl;
-    const transferUrl = `${siteUrl}/api/voice/transfer?to=${encodeURIComponent(
-      bypassPhoneNumber
-    )}&reason=${encodeURIComponent(
-      params.reason || "Customer requested human assistance"
-    )}`;
-
-    console.log(`📞 Transferring call to: ${transferUrl}`);
-
-    const call = await twilio.calls(callSid).update({
-      url: transferUrl,
-      method: "POST",
-    });
-
-    console.log(
-      `✅ Call ${callSid} successfully transferred to ${bypassPhoneNumber}`
-    );
-
-    return {
-      success: true,
-      transfer_number: bypassPhoneNumber,
-      message:
-        "I'm connecting you to a human representative now. Please hold while I transfer your call.",
-      caller_phone: callerPhone,
-      reason: params.reason || "Customer requested human assistance",
-      twilio_call_sid: call.sid,
-    };
-  } catch (error) {
-    console.error("❌ Error processing human transfer:", error);
-    return {
-      success: false,
-      error: error.message,
-      message:
-        "I apologize, but I'm unable to transfer you to a human right now. Please try calling back later.",
-    };
-  }
-}
-
-/**
- * Send SMS confirmation for appointment booking
- * @param {Object} params - SMS parameters
- * @returns {Promise<void>}
- */
-async function sendSMSConfirmation(params, businessConfig) {
-  const {
-    businessId,
-    customerPhone,
-    appointmentId,
-    customerName,
-    appointmentDate,
-    appointmentTime,
-    serviceName,
-    serviceDuration,
-  } = params;
-
-  // Get custom SMS template from business config or use default
-  const template =
-    businessConfig?.config?.sms_confirmation_template ||
-    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. See you soon! {business_phone}`;
-
-  // Replace template variables with actual values
-  const message = template
-    .replace(/{customer_name}/g, customerName)
-    .replace(
-      /{business_name}/g,
-      businessConfig?.business?.name || "our business"
-    )
-    .replace(/{date}/g, appointmentDate)
-    .replace(/{time}/g, appointmentTime)
-    .replace(/{service_name}/g, serviceName)
-    .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : "")
-    .replace(/{business_phone}/g, businessConfig?.business?.phone || "");
-
-  // Call the SMS API
-  const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
-  const response = await fetch(`${baseUrl}/api/sms/send`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      businessId,
-      customerPhone,
-      message,
-      type: "confirmation",
-      appointmentId,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`SMS API error: ${response.status} ${errorText}`);
-  }
-
-  const result = await response.json();
-  console.log("📱 SMS confirmation result:", result);
-}
-
-/**
- * Send consolidated SMS confirmation for multiple bookings
- * @param {Object} params - SMS parameters
- * @param {Object} businessConfig - Business configuration
- * @returns {Promise<void>}
- */
-async function sendConsolidatedSMSConfirmation(params, businessConfig) {
-  const { businessId, customerPhone, customerName, bookings } = params;
-
-  // Build message with all bookings
-  let message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
-  
-  bookings.forEach((booking, index) => {
-    const date = booking.finalDate || booking.date;
-    const time = booking.finalTime || booking.time;
-    const serviceName = booking.serviceName || booking.service_name || "your service";
-    
-    message += `${index + 1}. ${serviceName} on ${date} at ${time}\n`;
-  });
-  
-  message += `\nSee you soon! ${businessConfig?.business?.phone || ""}`;
-
-  // Call the SMS API with the first booking's appointment ID for tracking
-  const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
-  const response = await fetch(`${baseUrl}/api/sms/send`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+    {
+      name: "get_available_slots",
+      description:
+        "REQUIRED: Call this function IMMEDIATELY whenever you mention checking availability or when a customer asks about booking for any date. NEVER say you'll check without actually calling this function right away. Use this to check real-time availability before discussing times.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Date in YYYY-MM-DD format (e.g., 2025-01-21)",
+          },
+          service_id: {
+            type: "string",
+            description: "Optional service ID to filter slots",
+          },
+        },
+        required: ["date"],
+      },
     },
-    body: JSON.stringify({
-      businessId,
-      customerPhone,
-      message,
-      type: "confirmation",
-      appointmentId: bookings[0]?.appointmentId,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Consolidated SMS API error: ${response.status} ${errorText}`);
-  }
-
-  console.log("✅ Consolidated SMS sent successfully");
+    {
+      name: "create_booking",
+      description:
+        "Create a confirmed appointment booking after customer has chosen a time",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description: "Customer full name",
+          },
+          service_id: {
+            type: "string",
+            description: "ID of the service to book",
+          },
+          date: {
+            type: "string",
+            description: "Date in YYYY-MM-DD format",
+          },
+          time: {
+            type: "string",
+            description:
+              "Time in HH:MM format (24-hour). Convert from 12-hour format if needed (e.g., '3:00 PM' becomes '15:00')",
+          },
+          customer_phone: {
+            type: "string",
+            description: "Customer phone number (optional)",
+          },
+        },
+        required: ["customer_name", "service_id", "date", "time"],
+      },
+    },
+    {
+      name: "update_booking",
+      description:
+        "Update an existing booking. SAME-CALL: If customer just made a booking in this call, you can call this with just the new details (new_date, new_time, or new_service_id) - the system will automatically use stored session data for customer_name, current_date, and current_time. NEW CALL: Requires exact customer name and current appointment details for security.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description:
+              "EXACT customer name (optional for same-call operations - will use session data)",
+          },
+          current_date: {
+            type: "string",
+            description:
+              "Current appointment date in YYYY-MM-DD format (optional for same-call operations)",
+          },
+          current_time: {
+            type: "string",
+            description:
+              "Current appointment time in HH:MM format (optional for same-call operations)",
+          },
+          new_date: {
+            type: "string",
+            description:
+              "New appointment date in YYYY-MM-DD format (optional if only changing time)",
+          },
+          new_time: {
+            type: "string",
+            description:
+              "New appointment time in HH:MM format (optional if only changing date)",
+          },
+          new_service_id: {
+            type: "string",
+            description: "New service ID if changing service (optional)",
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "cancel_booking",
+      description:
+        "Cancel an existing booking. SAME-CALL: If customer just made a booking in this call, you can call this with just the reason (optional) - the system will automatically use stored session data for customer_name, date, and time. NEW CALL: Requires exact customer name and appointment details for security.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: {
+            type: "string",
+            description:
+              "EXACT customer name (optional for same-call operations - will use session data)",
+          },
+          date: {
+            type: "string",
+            description:
+              "Appointment date in YYYY-MM-DD format (optional for same-call operations)",
+          },
+          time: {
+            type: "string",
+            description:
+              "Appointment time in HH:MM format (optional for same-call operations)",
+          },
+          reason: {
+            type: "string",
+            description: "Reason for cancellation (optional)",
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "transfer_to_human",
+      description:
+        "Transfer the customer to a human team member when they request to speak to someone or need human assistance",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description:
+              "Brief reason for the transfer (e.g., 'customer requested human', 'complex issue', 'manager requested')",
+          },
+        },
+        required: ["reason"],
+      },
+    },
+    {
+      name: "end_call",
+      description:
+        "Say the farewell and then end the phone call. This function MUST be the absolute last action in the conversation after you said the farewell phrase. ",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description:
+              "Brief reason for ending the call (e.g., 'appointment booked', 'customer said goodbye', 'inquiry completed')",
+          },
+        },
+        required: ["reason"],
+      },
+    },
+  ];
 }
+
+// Removed unused utility functions and constants
