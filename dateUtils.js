@@ -17,8 +17,8 @@ export const UK_DATE_FORMAT = "dd/MM/yyyy";
 export const UK_TIME_FORMAT = "HH:mm";
 export const UK_DATETIME_FORMAT = "dd/MM/yyyy HH:mm";
 export const ISO_DATE_FORMAT = "yyyy-MM-dd";
-export const ISO_TIME_FORMAT = "HH:mm:ss";
-export const ISO_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss";
+export const ISO_TIME_FORMAT = "HH:mm";
+export const ISO_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm";
 
 // UK locale options (Monday as first day of week)
 const UK_LOCALE_OPTIONS = {
@@ -197,7 +197,7 @@ export function convertFromUKTime(date, toTimezone) {
  * @returns {Date} Date object in UK timezone
  */
 export function createUKDateTime(isoDate, timeString) {
-  const dateTimeString = `${isoDate}T${timeString}:00`;
+  const dateTimeString = `${isoDate}T${timeString}`;
   const parsed = parseISO(dateTimeString);
   if (!isValid(parsed)) {
     throw new Error(`Invalid date/time combination: ${isoDate} ${timeString}`);

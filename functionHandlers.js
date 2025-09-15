@@ -611,8 +611,8 @@ export async function createBooking(businessConfig, params, callSid = null) {
       .padStart(2, "0")}`;
 
     // Send separate date and time components to avoid timezone conversion issues
-    const startTime = `${timeIn24h}:00`;
-    const endTimeString = `${endTimeIn24h}:00`;
+    const startTime = timeIn24h;
+    const endTimeString = endTimeIn24h;
 
     console.log(`🕐 Appointment datetime (UK local): ${startTime}`);
     console.log(`🕐 Business timezone: ${businessTimezone}`);
