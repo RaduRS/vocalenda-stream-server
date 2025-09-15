@@ -176,7 +176,7 @@ export async function handleFunctionCall(
         break;
 
       case "get_available_slots":
-        result = await getAvailableSlots(businessConfig, parameters);
+        result = await getAvailableSlots(businessConfig, parameters, callSid);
         break;
 
       case "create_booking":
@@ -282,7 +282,7 @@ export async function handleFunctionCall(
  * @param {Object} params - Parameters including date and service_id
  * @returns {Object} Available slots or error
  */
-export async function getAvailableSlots(businessConfig, params) {
+export async function getAvailableSlots(businessConfig, params, callSid = null) {
   const timestamp = new Date().toISOString();
   console.log(
     `[${timestamp}] 🚀 STARTING getAvailableSlots with params:`,
@@ -438,6 +438,17 @@ export async function getAvailableSlots(businessConfig, params) {
     // Extract just the time strings from the slots
     const availableTimes = result.slots?.map((slot) => slot.startTime) || [];
     console.log("✅ Available time slots:", availableTimes);
+
+    // Store the checked date in session for context awareness
+    if (callSid && date) {
+      const session = getCallSession(callSid);
+      setCallSession(callSid, {
+        ...session,
+        lastCheckedDate: date,
+        lastCheckedTimestamp: new Date().toISOString()
+      });
+      console.log(`📅 Stored checked date in session: ${date}`);
+    }
 
     return {
       available_slots: availableTimes,
@@ -848,6 +859,28 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       currentDate: currentDateToUse,
       currentTime: currentTimeToUse,
     });
+
+    // Check for recently checked date context
+    // If user only provided new_time and recently checked availability for a different date,
+    // they might want to move to that checked date
+    if (new_time && !new_date && session.lastCheckedDate) {
+      const checkedDate = session.lastCheckedDate;
+      const checkedTimestamp = session.lastCheckedTimestamp;
+      const now = new Date();
+      const checkedTime = new Date(checkedTimestamp);
+      const timeDiffMinutes = (now - checkedTime) / (1000 * 60);
+      
+      // If they checked availability within the last 10 minutes and it's a different date
+      if (timeDiffMinutes <= 10 && checkedDate !== currentDateToUse) {
+        console.log(`🎯 CONTEXT AWARENESS: User checked availability for ${checkedDate} ${timeDiffMinutes.toFixed(1)} minutes ago`);
+        console.log(`📅 Current booking date: ${currentDateToUse}, Checked date: ${checkedDate}`);
+        console.log(`💡 User likely wants to move to the checked date (${checkedDate}) at ${new_time}`);
+        
+        // Log this insight but don't automatically change the behavior
+        // The AI should handle this based on the improved instructions
+        console.log(`🤖 AI should consider suggesting: new_date: "${checkedDate}", new_time: "${new_time}"`);
+      }
+    }
 
     const business = businessConfig.business;
 
