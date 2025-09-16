@@ -284,7 +284,13 @@ export async function handleFunctionCall(
       case "get_day_of_week":
         try {
           console.log("📅 Getting day of week for:", params.date);
+          console.log("📅 Date type:", typeof params.date);
+          console.log("📅 Date value:", JSON.stringify(params.date));
+          
+          // Try to parse the date
           const parsedDate = parseUKDate(params.date);
+          console.log("📅 Parsed date successfully:", parsedDate);
+          
           const dayName = getDayOfWeekName(parsedDate);
           const dayNumber = getDayOfWeekNumber(parsedDate);
 
@@ -301,8 +307,55 @@ export async function handleFunctionCall(
           };
         } catch (error) {
           console.error("❌ Error getting day of week:", error);
+          console.error("❌ Error details:", error.message);
+          console.error("❌ Error stack:", error.stack);
+          
+          // Try alternative parsing approaches
+          console.log("🔄 Attempting alternative date parsing...");
+          try {
+            // Try direct Date parsing
+            const directParse = new Date(params.date);
+            console.log("📅 Direct Date() parsing result:", directParse);
+            console.log("📅 Direct Date() is valid:", !isNaN(directParse.getTime()));
+            
+            // Try manual parsing for DD/MM/YYYY
+            const parts = params.date.split('/');
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10);
+              const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+              const year = parseInt(parts[2], 10);
+              const manualDate = new Date(year, month, day);
+              console.log("📅 Manual parsing result:", manualDate);
+              console.log("📅 Manual parsing is valid:", !isNaN(manualDate.getTime()));
+              
+              if (!isNaN(manualDate.getTime())) {
+                const dayName = getDayOfWeekName(manualDate);
+                const dayNumber = getDayOfWeekNumber(manualDate);
+                console.log(`✅ Manual parsing success: ${params.date} is a ${dayName}`);
+                result = {
+                  date: params.date,
+                  day_of_week: dayName,
+                  day_number: dayNumber,
+                  formatted: `${dayName}, ${manualDate.toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}`,
+                };
+                break;
+              }
+            }
+          } catch (altError) {
+            console.error("❌ Alternative parsing also failed:", altError);
+          }
+          
           result = {
-            error: "Invalid date format. Please use DD/MM/YYYY format.",
+            error: `Invalid date format: "${params.date}". Please use DD/MM/YYYY format (e.g., 16/09/2025).`,
+            debug_info: {
+              received_date: params.date,
+              date_type: typeof params.date,
+              error_message: error.message
+            }
           };
         }
         break;
