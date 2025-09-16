@@ -640,7 +640,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
     }
 
     // Call the new simplified calendar availability API
-    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${business.id}&serviceId=${serviceId}&date=${date}`;
+    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${businessConfig.business.id}&serviceId=${serviceId}&date=${date}`;
 
     console.log(`[${timestamp}] 🌐 About to make API call:`);
     console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
@@ -648,7 +648,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       `[${timestamp}] 🔑 Secret exists:`,
       !!config.nextjs?.internalApiSecret
     );
-    console.log(`[${timestamp}] 🏢 Business ID:`, business.id);
+    console.log(`[${timestamp}] 🏢 Business ID:`, businessConfig.business.id);
     console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
     console.log(`[${timestamp}] 📅 Date:`, date);
 
