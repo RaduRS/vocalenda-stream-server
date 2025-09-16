@@ -557,12 +557,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       JSON.stringify(params, null, 2)
     );
     const { date, service_id } = params;
-    const business = businessConfig.business;
-
-    if (!business?.google_calendar_id) {
-      console.error("❌ No Google Calendar connected for business");
-      return { error: "Calendar not connected" };
-    }
+    // Business config already defined at the top of the function
 
     // Check if the requested date falls within business operating days
     // This uses the proper UK date parsing and business hours validation
@@ -1048,6 +1043,14 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       new_service_id,
     } = params;
 
+    // Get business config early to avoid initialization errors
+    const business = businessConfig.business;
+
+    if (!business?.google_calendar_id) {
+      console.error("❌ No Google Calendar connected for business");
+      return { error: "Calendar not connected" };
+    }
+
     // Get session data to fill in missing customer information
     const session = getCallSession(callSid);
     console.log("📋 Session data:", session);
@@ -1055,9 +1058,16 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     // Use session data as fallback for missing information
     const customerNameToUse = customer_name || session.customerName;
     
+    // Validate we have the essential customer information
+    if (!customerNameToUse) {
+      return { 
+        error: "Missing customer information. Please use lookup_customer first to find the booking details." 
+      };
+    }
+    
     // Improved logic to identify which appointment to update
-    let currentDateToUse = current_date;
-    let currentTimeToUse = current_time;
+    let currentDateToUse = current_date || session.currentDate;
+    let currentTimeToUse = current_time || session.currentTime;
     
     // If no specific date/time provided, try to infer from context
     if (!currentDateToUse || !currentTimeToUse) {
@@ -1068,8 +1078,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       let targetBooking = null;
       
       if (new_service_id) {
-        // Find booking with matching service
-        targetBooking = bookings.reverse().find(b => 
+        // Find booking with matching service (search from most recent)
+        targetBooking = [...bookings].reverse().find(b => 
           b.type === 'create' && 
           b.serviceId === new_service_id && 
           b.appointmentId
@@ -1078,7 +1088,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       
       // If no service match or no service specified, use the most recent create booking
       if (!targetBooking) {
-        targetBooking = bookings.reverse().find(b => 
+        targetBooking = [...bookings].reverse().find(b => 
           b.type === 'create' && 
           b.appointmentId
         );
@@ -1087,7 +1097,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       if (targetBooking) {
         currentDateToUse = currentDateToUse || targetBooking.date;
         currentTimeToUse = currentTimeToUse || targetBooking.time;
-        console.log("🎯 Identified target booking:", {
+        console.log("🎯 Identified target booking from session:", {
           appointmentId: targetBooking.appointmentId,
           service: targetBooking.serviceName,
           date: targetBooking.date,
@@ -1177,13 +1187,6 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         // The AI should handle this based on the improved instructions
         console.log(`🤖 AI should consider suggesting: new_date: "${checkedDate}", new_time: "${new_time}"`);
       }
-    }
-
-    const business = businessConfig.business;
-
-    if (!business?.google_calendar_id) {
-      console.error("❌ No Google Calendar connected for business");
-      return { error: "Calendar not connected" };
     }
 
     // Get caller phone from session for verification
