@@ -1283,7 +1283,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       if (bookings.length > 0) {
         const lastBooking = bookings[bookings.length - 1];
         if (lastBooking.type === 'update') {
-          lastBooking.finalDate = result.booking.date;
+          lastBooking.finalDate = result.booking.appointment_date;
           lastBooking.finalTime = result.booking.start_time;
           lastBooking.appointmentId = result.booking.id;
           lastBooking.serviceName = result.booking.service_name;
@@ -1293,27 +1293,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       setCallSession(callSid, { bookings: bookings });
     }
 
-    // Send SMS confirmation for the updated booking
-    try {
-      if (result.booking && callerPhone) {
-        await sendSMSConfirmation({
-          businessId: businessConfig.business.id,
-          customerName: customerNameToUse,
-          customerPhone: callerPhone,
-          appointmentDate: result.booking.date,
-          appointmentTime: result.booking.start_time,
-          serviceName: result.booking.service_name,
-          serviceDuration: result.booking.duration_minutes,
-          appointmentId: result.booking.id,
-        }, businessConfig);
-        console.log("📱 SMS confirmation sent for updated booking");
-      } else {
-        console.log("⚠️ SMS not sent - missing booking result or caller phone");
-      }
-    } catch (smsError) {
-      console.error("❌ Failed to send SMS for updated booking:", smsError);
-      // Don't fail the entire operation if SMS fails
-    }
+    // SMS will be sent at the end of the call, not immediately
+    console.log("📝 Updated booking will receive SMS confirmation at call end");
 
     return {
       success: true,
