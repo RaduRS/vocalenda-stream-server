@@ -1723,16 +1723,24 @@ export async function endCall(callSid, params, businessConfig = null) {
             finalBookings.map(b => b.appointmentId)
           );
           
+          // Get customer name from session or fallback to first booking's customer name
+          const customerName = session.customerName || 
+                              (finalBookings.length > 0 ? finalBookings[0].customerName : null) ||
+                              "Valued Customer";
+          
           await sendConsolidatedSMSConfirmation(
             {
               businessId: businessConfig.business.id,
               customerPhone: session.callerPhone,
-              customerName: session.customerName,
+              customerName: customerName,
               bookings: finalBookings,
             },
             businessConfig
           );
           console.log("✅ Consolidated SMS confirmation sent successfully");
+          
+          // Mark SMS as sent in session to prevent duplicates
+          setCallSession(callSid, { smsConfirmationSent: true });
           smsSuccess = true;
         } else {
           // No bookings to send SMS for, consider it successful
