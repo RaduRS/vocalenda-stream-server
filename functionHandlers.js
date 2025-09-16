@@ -9,8 +9,6 @@ import {
   UK_TIMEZONE,
   formatISODate,
   getDayOfWeekNumber,
-  formatConversationalDate,
-  formatConversationalTime,
 } from "./dateUtils.js";
 import { isWithinBusinessHours } from "./utils.js";
 import { db } from "./database.js";
@@ -69,6 +67,92 @@ export function clearCallSession(callSid) {
   if (!callSid) return;
   callSessions.delete(callSid);
   console.log(`🗑️ Session cleared for call ${callSid}`);
+}
+
+/**
+ * Proactively look up and store existing customer bookings in session
+ * This should be called when a customer is first identified by phone number
+ * @param {string} callSid - The Twilio call SID
+ * @param {string} callerPhone - The caller's phone number
+ * @param {Object} business - The business configuration
+ * @returns {Object|null} The most recent future booking or null
+ */
+export async function lookupAndStoreCustomerBookings(callSid, callerPhone, business) {
+  if (!callSid || !callerPhone || !business) {
+    console.log("⚠️ Missing required parameters for customer booking lookup");
+    return null;
+  }
+
+  try {
+    console.log(`🔍 Looking up existing bookings for phone: ${callerPhone}`);
+    
+    // Call the lookup API to find existing bookings
+    const lookupResponse = await fetch(
+      `${config.nextjs.siteUrl}/api/voice/lookup-customer-bookings`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": config.nextjs.internalApiSecret,
+        },
+        body: JSON.stringify({
+          business_id: business.id,
+          caller_phone: callerPhone
+        }),
+      }
+    );
+
+    if (lookupResponse.ok) {
+      const lookupResult = await lookupResponse.json();
+      if (lookupResult.bookings && lookupResult.bookings.length > 0) {
+        // Filter for future bookings only
+        const futureBookings = lookupResult.bookings.filter(b => {
+          const bookingDate = new Date(b.appointment_date + 'T' + b.start_time);
+          return bookingDate > new Date();
+        });
+        
+        if (futureBookings.length > 0) {
+          // Store ALL future bookings in session for better handling
+          setCallSession(callSid, {
+            customerName: futureBookings[0].customer_name,
+            hasExistingBookings: true,
+            existingBookingsCount: futureBookings.length,
+            allFutureBookings: futureBookings,
+            // Only set current booking details if there's exactly one booking
+            ...(futureBookings.length === 1 ? {
+              currentDate: futureBookings[0].appointment_date,
+              currentTime: futureBookings[0].start_time,
+              currentServiceName: futureBookings[0].service_name,
+              selectedBookingId: futureBookings[0].id
+            } : {})
+          });
+          
+          console.log("✅ Stored existing bookings in session:", {
+            customer: futureBookings[0].customer_name,
+            totalFutureBookings: futureBookings.length,
+            bookings: futureBookings.map(b => ({
+              id: b.id,
+              date: b.appointment_date,
+              time: b.start_time,
+              service: b.service_name
+            }))
+          });
+          
+          return futureBookings.length === 1 ? futureBookings[0] : futureBookings;
+        } else {
+          console.log("📅 No future bookings found for this customer");
+        }
+      } else {
+        console.log("📅 No existing bookings found for this customer");
+      }
+    } else {
+      console.log("⚠️ Could not lookup existing bookings:", lookupResponse.status);
+    }
+  } catch (error) {
+    console.error("❌ Error during proactive booking lookup:", error);
+  }
+  
+  return null;
 }
 
 /**
@@ -223,8 +307,168 @@ export async function handleFunctionCall(
         }
         break;
 
+      case "select_booking":
+        console.log("🎯 Processing select_booking function call");
+        try {
+          const session = getCallSession(callSid);
+          
+          if (!session || !session.allFutureBookings || session.allFutureBookings.length === 0) {
+            result = { error: "No bookings available to select from. Please lookup your bookings first." };
+            break;
+          }
+          
+          const { appointment_date, start_time, service_name } = params;
+          
+          // Find the matching booking based on provided criteria
+          let selectedBooking = null;
+          
+          for (const booking of session.allFutureBookings) {
+            let matches = 0;
+            let totalCriteria = 0;
+            
+            // Check date match
+            if (appointment_date) {
+              totalCriteria++;
+              if (booking.appointment_date === appointment_date) {
+                matches++;
+              }
+            }
+            
+            // Check time match
+            if (start_time) {
+              totalCriteria++;
+              if (booking.start_time === start_time) {
+                matches++;
+              }
+            }
+            
+            // Check service match (fuzzy matching for service names)
+            if (service_name) {
+              totalCriteria++;
+              if (booking.service_name.toLowerCase().includes(service_name.toLowerCase()) ||
+                  service_name.toLowerCase().includes(booking.service_name.toLowerCase())) {
+                matches++;
+              }
+            }
+            
+            // If all provided criteria match, this is our booking
+            if (matches === totalCriteria && totalCriteria > 0) {
+              selectedBooking = booking;
+              break;
+            }
+          }
+          
+          if (selectedBooking) {
+            // Store the selected booking details in session
+            setCallSession(callSid, {
+              ...session,
+              currentDate: selectedBooking.appointment_date,
+              currentTime: selectedBooking.start_time,
+              currentServiceName: selectedBooking.service_name,
+              selectedBookingId: selectedBooking.id
+            });
+            
+            result = {
+              success: true,
+              message: `Selected your ${selectedBooking.service_name} appointment on ${selectedBooking.appointment_date} at ${selectedBooking.start_time}. How would you like to modify this booking?`,
+              selected_booking: {
+                id: selectedBooking.id,
+                customer_name: selectedBooking.customer_name,
+                appointment_date: selectedBooking.appointment_date,
+                start_time: selectedBooking.start_time,
+                service_name: selectedBooking.service_name
+              }
+            };
+          } else {
+            // No exact match found, provide available options
+            const availableOptions = session.allFutureBookings.map(booking => 
+              `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
+            ).join(', ');
+            
+            result = {
+              success: false,
+              message: `I couldn't find a booking matching those details. Your available appointments are: ${availableOptions}. Please specify which one you'd like to modify.`,
+              available_bookings: session.allFutureBookings.map(booking => ({
+                id: booking.id,
+                customer_name: booking.customer_name,
+                appointment_date: booking.appointment_date,
+                start_time: booking.start_time,
+                service_name: booking.service_name,
+                formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
+              }))
+            };
+          }
+        } catch (error) {
+          console.error("❌ Error in select_booking:", error);
+          result = { error: "Failed to select booking" };
+        }
+        break;
+
       case "transfer_to_human":
         result = await transferToHuman(businessConfig, parameters, callSid);
+        break;
+
+      case "lookup_customer":
+        console.log("🔍 Processing lookup_customer function call");
+        try {
+          const session = getCallSession(callSid);
+          const phoneToUse = callerPhone || session.callerPhone;
+          
+          if (!phoneToUse) {
+            result = { error: "No phone number available for customer lookup" };
+            break;
+          }
+          
+          const existingBooking = await lookupAndStoreCustomerBookings(
+            callSid, 
+            phoneToUse, 
+            businessConfig.business
+          );
+          
+          if (existingBooking) {
+            // Check if it's a single booking or multiple bookings
+            if (Array.isArray(existingBooking)) {
+              // Multiple bookings found
+              result = {
+                success: true,
+                message: `Found ${existingBooking.length} future bookings for ${existingBooking[0].customer_name}. Please specify which appointment you'd like to modify by mentioning the date, time, or service.`,
+                multiple_bookings: true,
+                bookings: existingBooking.map(booking => ({
+                  id: booking.id,
+                  customer_name: booking.customer_name,
+                  appointment_date: booking.appointment_date,
+                  start_time: booking.start_time,
+                  service_name: booking.service_name,
+                  formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
+                }))
+              };
+            } else {
+              // Single booking found
+              result = {
+                success: true,
+                message: `Found existing booking for ${existingBooking.customer_name} on ${existingBooking.appointment_date} at ${existingBooking.start_time} for ${existingBooking.service_name}`,
+                multiple_bookings: false,
+                booking: {
+                  id: existingBooking.id,
+                  customer_name: existingBooking.customer_name,
+                  appointment_date: existingBooking.appointment_date,
+                  start_time: existingBooking.start_time,
+                  service_name: existingBooking.service_name
+                }
+              };
+            }
+          } else {
+            result = {
+              success: true,
+              message: "No existing future bookings found for this customer",
+              multiple_bookings: false,
+              booking: null
+            };
+          }
+        } catch (error) {
+          console.error("❌ Error in lookup_customer:", error);
+          result = { error: "Failed to lookup customer bookings" };
+        }
         break;
 
       default:
@@ -857,6 +1101,56 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       }
     }
 
+    // If we still don't have current booking details, try to look them up from the database
+    if (!currentDateToUse || !currentTimeToUse) {
+      console.log("🔍 Current booking details missing, attempting database lookup...");
+      
+      try {
+        // Call the internal API to find existing bookings for this customer
+        const lookupResponse = await fetch(
+          `${config.nextjs.siteUrl}/api/voice/lookup-customer-bookings`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-secret": config.nextjs.internalApiSecret,
+            },
+            body: JSON.stringify({
+              business_id: business.id,
+              customer_name: customerNameToUse,
+              caller_phone: session?.callerPhone
+            }),
+          }
+        );
+
+        if (lookupResponse.ok) {
+          const lookupResult = await lookupResponse.json();
+          if (lookupResult.bookings && lookupResult.bookings.length > 0) {
+            // Use the most recent future booking
+            const futureBookings = lookupResult.bookings.filter(b => {
+              const bookingDate = new Date(b.appointment_date + 'T' + b.start_time);
+              return bookingDate > new Date();
+            });
+            
+            if (futureBookings.length > 0) {
+              const mostRecentBooking = futureBookings[0]; // API should return them sorted
+              currentDateToUse = mostRecentBooking.appointment_date;
+              currentTimeToUse = mostRecentBooking.start_time;
+              console.log("✅ Found existing booking from database:", {
+                date: currentDateToUse,
+                time: currentTimeToUse,
+                service: mostRecentBooking.service_name
+              });
+            }
+          }
+        } else {
+          console.log("⚠️ Could not lookup existing bookings:", lookupResponse.status);
+        }
+      } catch (lookupError) {
+        console.error("❌ Error looking up existing bookings:", lookupError);
+      }
+    }
+
     console.log("🔄 Using customer info:", {
       customerName: customerNameToUse,
       currentDate: currentDateToUse,
@@ -960,7 +1254,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Internal-Secret": config.nextjs.internalApiSecret,
+          "x-internal-secret": config.nextjs.internalApiSecret,
         },
         body: JSON.stringify(requestBody),
       }
@@ -1085,7 +1379,7 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Internal-Secret": config.nextjs.internalApiSecret,
+          "x-internal-secret": config.nextjs.internalApiSecret,
         },
         body: JSON.stringify({
           business_id: business.id,

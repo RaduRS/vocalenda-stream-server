@@ -243,6 +243,15 @@ EXAMPLE SEQUENCE:
 - REMEMBER: A successful booking response means the appointment is CONFIRMED - do not verify or double-check it
 - 🚨 POST-BOOKING CONTEXT AWARENESS: After creating a booking, you KNOW the customer's details from the session - use this information automatically for any updates or changes
 
+📞 CUSTOMER LOOKUP & BOOKING SELECTION PROTOCOL:
+- Use lookup_customer when customer wants to update/cancel existing appointments and you need to find their bookings
+- If lookup_customer returns multiple bookings, guide customer to specify which one: "I found several appointments for you. Which one would you like to update?"
+- Use select_booking when customer has multiple bookings and specifies details like date, time, or service to identify the specific appointment
+- Examples requiring lookup_customer: "I want to cancel my appointment", "Can I reschedule my booking?", "What time is my appointment?"
+- Examples requiring select_booking after lookup_customer: "Cancel the one on Friday", "Change the 2 PM appointment", "Update my haircut appointment"
+- NEVER ask for phone number - it's automatically verified from caller ID
+- Always confirm which specific appointment before making changes when multiple exist
+
 Be friendly and helpful. Provide immediate responses about availability without making customers wait. Never guess availability. Never mention technical details about calendar systems.
 
 🤝 HUMAN HANDOFF PROTOCOL:
@@ -475,6 +484,48 @@ export function getAvailableFunctions(currentYear, currentMonth) {
           reason: {
             type: "string",
             description: "Reason for cancellation (optional)",
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "lookup_customer",
+      description:
+        "Look up existing customer bookings by phone number. Use this when a customer calls to update or cancel an existing appointment that wasn't made in the current call. This will populate session data with their existing booking details.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description:
+              "Brief reason for the lookup (e.g., 'customer wants to update appointment', 'customer wants to cancel booking', 'checking existing bookings')",
+          },
+        },
+        required: ["reason"],
+      },
+    },
+    {
+      name: "select_booking",
+      description:
+        "Select a specific booking when a customer has multiple future appointments. Use this after lookup_customer returns multiple bookings. Customer must provide at least one identifier: date, time, or service name.",
+      parameters: {
+        type: "object",
+        properties: {
+          appointment_date: {
+            type: "string",
+            description:
+              "Appointment date in YYYY-MM-DD format (optional but recommended for identification)",
+          },
+          start_time: {
+            type: "string",
+            description:
+              "Appointment time in HH:MM format (optional but recommended for identification)",
+          },
+          service_name: {
+            type: "string",
+            description:
+              "Service name or partial service name (optional but recommended for identification)",
           },
         },
         required: [],
