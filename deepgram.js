@@ -989,33 +989,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         );
 
         if (silenceDuration >= 15000) {
-          // Auto-disconnect at 15 seconds - send InjectAgentMessage to trigger farewell
+          // Auto-disconnect at 15 seconds - send InjectAgentMessage to trigger farewell and end_call
           console.log(
-            `[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 10s`
+            `[${timestamp}] 📞 SILENCE_DISCONNECT: Auto-disconnecting after 15s silence`
           );
           deepgramWs.send(
             JSON.stringify({
               type: "InjectAgentMessage",
               content:
-                "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!",
+                "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye! [CALL end_call FUNCTION NOW]",
             })
           );
 
-          // Wait a moment for the agent to speak, then end the call
-          setTimeout(async () => {
-            console.log(
-              `[${timestamp}] 📞 ENDING_CALL: Terminating call after silence timeout`
-            );
-            if (currentCallSid) {
-              await endCall(currentCallSid, {
-                reason: "silence timeout - auto disconnect",
-              }, currentBusinessConfig);
-            } else {
-              console.log(`[${timestamp}] ⚠️ No callSid available for endCall`);
-            }
-          }, 4000); // Wait 4 seconds for agent to finish speaking
-
-          // Clear silence tracking since we're ending using connection state
+          // Clear silence tracking since we're ending the call
           connectionState.silenceManager.cleanup();
         } else if (silenceDuration < 15000) {
           // Continue checking
