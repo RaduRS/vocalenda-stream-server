@@ -1581,6 +1581,7 @@ export async function endCall(callSid, params, businessConfig = null) {
           }
         }
         
+        let smsSuccess = false;
         if (finalBookings.length > 0) {
           console.log(
             "📱 Sending consolidated SMS confirmation for bookings:",
@@ -1597,13 +1598,22 @@ export async function endCall(callSid, params, businessConfig = null) {
             businessConfig
           );
           console.log("✅ Consolidated SMS confirmation sent successfully");
+          smsSuccess = true;
+        } else {
+          // No bookings to send SMS for, consider it successful
+          smsSuccess = true;
         }
       } catch (smsError) {
         console.error("❌ Failed to send consolidated SMS confirmation:", smsError);
-        // Don't fail the call ending if SMS fails
+        // Don't fail the call ending if SMS fails, but don't clear session yet
+        // This allows for potential retry in server.js disconnect handler
       }
     } else if (session.bookingCancelled) {
       console.log("🚫 Skipping SMS confirmation - booking was cancelled in this call");
+      smsSuccess = true; // No SMS needed for cancelled bookings
+    } else {
+      // No bookings at all, consider SMS successful
+      smsSuccess = true;
     }
 
     // Initialize Twilio client
@@ -1622,8 +1632,13 @@ export async function endCall(callSid, params, businessConfig = null) {
 
     console.log(`✅ Call ended successfully:`, call.status);
 
-    // Clear call session when call ends
-    clearCallSession(callSid);
+    // Only clear call session if SMS was successful or not needed
+    if (smsSuccess) {
+      clearCallSession(callSid);
+      console.log(`🧹 Session cleared for call ${callSid} after successful SMS handling`);
+    } else {
+      console.log(`⚠️ Session retained for call ${callSid} due to SMS failure - may retry`);
+    }
 
     return {
       success: true,
@@ -1799,7 +1814,7 @@ async function sendSMSConfirmation(params, businessConfig) {
  * @param {Object} businessConfig - Business configuration
  * @returns {Promise<void>}
  */
-async function sendConsolidatedSMSConfirmation(params, businessConfig) {
+export async function sendConsolidatedSMSConfirmation(params, businessConfig) {
   const { businessId, customerPhone, customerName, bookings } = params;
 
   // Get the template from dashboard configuration
