@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
+import { getCurrentUKDateTime } from "./dateUtils.js";
 import { validateConfig } from "./config.js";
 import { handleFunctionCall, endCall } from "./functionHandlers.js";
 import { db } from "./database.js";
@@ -115,7 +116,12 @@ export async function initializeDeepgram(businessConfig, callContext) {
             systemPrompt.includes("get_available_slots")
           );
 
-          const functionsArray = getAvailableFunctions();
+          // Get dynamic date variables for function descriptions
+          const todayUK = getCurrentUKDateTime();
+          const currentYear = todayUK.getFullYear();
+          const currentMonth = todayUK.toLocaleString('en-GB', { month: 'long' });
+          
+          const functionsArray = getAvailableFunctions(currentYear, currentMonth);
           console.log(
             `[${timestamp}] 🔧 FUNCTIONS: Available count:`,
             Array.isArray(functionsArray) ? functionsArray.length : 0
