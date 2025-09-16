@@ -10,7 +10,7 @@ import {
   closeDeepgramConnection,
   saveConversationTranscript,
 } from "./deepgram.js";
-import { clearCallSession, getCallSession, endCall, sendConsolidatedSMSConfirmation } from "./functionHandlers.js";
+import { clearCallSession, getCallSession, setCallSession, endCall, sendConsolidatedSMSConfirmation } from "./functionHandlers.js";
 import { db, supabase } from "./database.js";
 
 // Validate configuration on startup
@@ -351,7 +351,7 @@ wss.on("connection", async (ws, req) => {
         // Only send SMS confirmations if not already sent
         if (!smsConfirmationSent) {
           const session = getCallSession(callSid);
-          if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled) {
+          if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled && !session.smsConfirmationSent) {
             console.log(`📱 Call disconnected abruptly - checking for pending SMS confirmations for ${callSid}`);
             
             // Use existing businessConfig or load it if needed
@@ -383,16 +383,27 @@ wss.on("connection", async (ws, req) => {
                   }
                   
                   if (finalBookings.length > 0) {
+                    // Get customer name from session or fallback to first booking's customer name
+                    const customerName = sessionAfterEndCall.customerName || 
+                                        (finalBookings.length > 0 ? finalBookings[0].customerName : null) ||
+                                        "Valued Customer";
+                    
                     await sendConsolidatedSMSConfirmation(
                       {
                         businessId: configToUse.business.id,
                         customerPhone: sessionAfterEndCall.callerPhone,
-                        customerName: sessionAfterEndCall.customerName,
+                        customerName: customerName,
                         bookings: finalBookings,
                       },
                       configToUse
                     );
                     console.log(`✅ SMS retry successful for abrupt disconnect: ${callSid}`);
+                    
+                    // Mark SMS as sent to prevent further duplicates
+                    const updatedSession = getCallSession(callSid);
+                    if (updatedSession) {
+                      setCallSession(callSid, { ...updatedSession, smsConfirmationSent: true });
+                    }
                   }
                   
                   // Clear session after successful retry
