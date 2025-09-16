@@ -1082,7 +1082,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         targetBooking = [...bookings].reverse().find(b => 
           b.type === 'create' && 
           b.serviceId === new_service_id && 
-          b.appointmentId
+          b.appointmentId &&
+          !b.updatedTo // Skip bookings that have already been updated
         );
       }
       
@@ -1090,7 +1091,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       if (!targetBooking) {
         targetBooking = [...bookings].reverse().find(b => 
           b.type === 'create' && 
-          b.appointmentId
+          b.appointmentId &&
+          !b.updatedTo // Skip bookings that have already been updated
         );
       }
       
@@ -1290,6 +1292,26 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         }
       }
       
+      // Mark any existing bookings with the same original date/time as updated
+      // This prevents the AI from trying to update the same booking again
+      for (const booking of bookings) {
+        if (booking.type === 'create' && 
+            booking.date === currentDateToUse && 
+            booking.time === currentTimeToUse) {
+          booking.updatedTo = {
+            date: result.booking.appointment_date,
+            time: result.booking.start_time,
+            appointmentId: result.booking.id
+          };
+          console.log(`🔄 Marked original booking as updated:`, {
+            originalDate: booking.date,
+            originalTime: booking.time,
+            newDate: result.booking.appointment_date,
+            newTime: result.booking.start_time
+          });
+        }
+      }
+      
       setCallSession(callSid, { bookings: bookings });
     }
 
@@ -1432,6 +1454,8 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
  * @returns {Object} Result of call termination or error
  */
 export async function endCall(callSid, params, businessConfig = null) {
+  let smsSuccess = false; // Declare at function level to avoid scope issues
+  
   try {
     console.log(
       "📞 endCall called with params:",
@@ -1581,7 +1605,6 @@ export async function endCall(callSid, params, businessConfig = null) {
           }
         }
         
-        let smsSuccess = false;
         if (finalBookings.length > 0) {
           console.log(
             "📱 Sending consolidated SMS confirmation for bookings:",
