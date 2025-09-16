@@ -194,7 +194,9 @@ export async function handleFunctionCall(
       "🔧 Function call received:",
       JSON.stringify(functionCallData, null, 2)
     );
-    const { function_name, params, function_call_id } = functionCallData;
+    const { function_name, function_call_id } = functionCallData;
+    // Handle both 'params' and 'parameters' properties
+    const params = functionCallData.params || functionCallData.parameters || {};
 
     // Check for duplicate create_booking requests
     if (function_name === "create_booking" && function_call_id) {
