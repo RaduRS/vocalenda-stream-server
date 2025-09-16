@@ -183,9 +183,9 @@ export async function handleFunctionCall(
     functionCallData?.function_name
   );
   console.log(
-    `[${timestamp}] 📊 Parameters:`,
-    JSON.stringify(functionCallData?.parameters, null, 2)
-  );
+      `[${timestamp}] 📊 Parameters:`,
+      JSON.stringify(functionCallData?.params, null, 2)
+    );
   console.log(`[${timestamp}] 🏢 Business config exists:`, !!businessConfig);
   console.log(`[${timestamp}] 🌐 WebSocket state:`, deepgramWs?.readyState);
 
@@ -194,7 +194,7 @@ export async function handleFunctionCall(
       "🔧 Function call received:",
       JSON.stringify(functionCallData, null, 2)
     );
-    const { function_name, parameters, function_call_id } = functionCallData;
+    const { function_name, params, function_call_id } = functionCallData;
 
     // Check for duplicate create_booking requests
     if (function_name === "create_booking" && function_call_id) {
@@ -262,35 +262,35 @@ export async function handleFunctionCall(
         break;
 
       case "get_available_slots":
-        result = await getAvailableSlots(businessConfig, parameters, callSid);
+        result = await getAvailableSlots(businessConfig, params, callSid);
         break;
 
       case "create_booking":
-        result = await createBooking(businessConfig, parameters, callSid);
+        result = await createBooking(businessConfig, params, callSid);
         break;
 
       case "update_booking":
-        result = await updateBooking(businessConfig, parameters, callSid);
+        result = await updateBooking(businessConfig, params, callSid);
         break;
 
       case "cancel_booking":
-        result = await cancelBooking(businessConfig, parameters, callSid);
+        result = await cancelBooking(businessConfig, params, callSid);
         break;
 
       case "end_call":
-        result = await endCall(callSid, parameters, businessConfig);
+        result = await endCall(callSid, params, businessConfig);
         break;
 
       case "get_day_of_week":
         try {
-          console.log("📅 Getting day of week for:", parameters.date);
-          const parsedDate = parseUKDate(parameters.date);
+          console.log("📅 Getting day of week for:", params.date);
+          const parsedDate = parseUKDate(params.date);
           const dayName = getDayOfWeekName(parsedDate);
           const dayNumber = getDayOfWeekNumber(parsedDate);
 
-          console.log(`✅ ${parameters.date} is a ${dayName}`);
+          console.log(`✅ ${params.date} is a ${dayName}`);
           result = {
-            date: parameters.date,
+            date: params.date,
             day_of_week: dayName,
             day_number: dayNumber,
             formatted: `${dayName}, ${parsedDate.toLocaleDateString("en-GB", {
@@ -405,7 +405,7 @@ export async function handleFunctionCall(
         break;
 
       case "transfer_to_human":
-        result = await transferToHuman(businessConfig, parameters, callSid);
+        result = await transferToHuman(businessConfig, params, callSid);
         break;
 
       case "lookup_customer":
@@ -1320,7 +1320,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     return {
       success: true,
-      message: `Booking updated successfully for ${customer_name}`,
+      message: `Booking updated successfully for ${customerNameToUse}`,
       booking: result.booking,
     };
   } catch (error) {
@@ -1597,6 +1597,35 @@ export async function endCall(callSid, params, businessConfig = null) {
                 resultingDate: finalBooking.date,
                 resultingTime: finalBooking.time
               });
+            } else if (updates.length > 0) {
+              // If there's no create booking but there are updates, create finalBooking from the first update
+              // This handles the case where we're updating an existing appointment that wasn't created in this call
+              const firstUpdate = updates[0];
+              finalBooking = {
+                appointmentId: firstUpdate.appointmentId,
+                serviceName: firstUpdate.serviceName,
+                date: firstUpdate.finalDate || firstUpdate.newDate,
+                time: firstUpdate.finalTime || firstUpdate.newTime,
+                type: 'update'
+              };
+              
+              console.log(`📝 Created finalBooking from update for existing appointment ${appointmentId}:`, {
+                date: finalBooking.date,
+                time: finalBooking.time,
+                serviceName: finalBooking.serviceName
+              });
+              
+              // Apply any remaining updates
+              for (let i = 1; i < updates.length; i++) {
+                const laterUpdate = updates[i];
+                if (laterUpdate.finalDate) finalBooking.date = laterUpdate.finalDate;
+                if (laterUpdate.finalTime) finalBooking.time = laterUpdate.finalTime;
+                if (laterUpdate.newDate && !laterUpdate.finalDate) finalBooking.date = laterUpdate.newDate;
+                if (laterUpdate.newTime && !laterUpdate.finalTime) finalBooking.time = laterUpdate.newTime;
+                if (laterUpdate.serviceName) finalBooking.serviceName = laterUpdate.serviceName;
+                if (laterUpdate.appointmentId) finalBooking.appointmentId = laterUpdate.appointmentId;
+              }
+              break; // Exit the loop since we've processed all updates
             }
           }
           
