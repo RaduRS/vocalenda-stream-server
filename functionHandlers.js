@@ -283,20 +283,37 @@ export async function handleFunctionCall(
 
       case "get_day_of_week":
         try {
-          console.log("📅 Getting day of week for:", params.date);
-          console.log("📅 Date type:", typeof params.date);
-          console.log("📅 Date value:", JSON.stringify(params.date));
+          // Handle both 'params' and 'parameters' properties, and ensure we have the date
+          const functionParams = params || functionCallData.parameters || {};
+          const dateValue = functionParams.date;
+          
+          console.log("📅 Function call data:", JSON.stringify(functionCallData, null, 2));
+          console.log("📅 Extracted params:", JSON.stringify(functionParams, null, 2));
+          console.log("📅 Getting day of week for:", dateValue);
+          console.log("📅 Date type:", typeof dateValue);
+          console.log("📅 Date value:", JSON.stringify(dateValue));
+          
+          if (!dateValue) {
+            result = {
+              error: "No date provided. Please specify a date in DD/MM/YYYY format (e.g., 18/09/2025).",
+              debug_info: {
+                received_params: functionParams,
+                function_call_data: functionCallData
+              }
+            };
+            break;
+          }
           
           // Try to parse the date
-          const parsedDate = parseUKDate(params.date);
+          const parsedDate = parseUKDate(dateValue);
           console.log("📅 Parsed date successfully:", parsedDate);
           
           const dayName = getDayOfWeekName(parsedDate);
           const dayNumber = getDayOfWeekNumber(parsedDate);
 
-          console.log(`✅ ${params.date} is a ${dayName}`);
+          console.log(`✅ ${dateValue} is a ${dayName}`);
           result = {
-            date: params.date,
+            date: dateValue,
             day_of_week: dayName,
             day_number: dayNumber,
             formatted: `${dayName}, ${parsedDate.toLocaleDateString("en-GB", {
@@ -313,13 +330,20 @@ export async function handleFunctionCall(
           // Try alternative parsing approaches
           console.log("🔄 Attempting alternative date parsing...");
           try {
+            const functionParams = params || functionCallData.parameters || {};
+            const dateValue = functionParams.date;
+            
+            if (!dateValue) {
+              throw new Error("No date value available for alternative parsing");
+            }
+            
             // Try direct Date parsing
-            const directParse = new Date(params.date);
+            const directParse = new Date(dateValue);
             console.log("📅 Direct Date() parsing result:", directParse);
             console.log("📅 Direct Date() is valid:", !isNaN(directParse.getTime()));
             
             // Try manual parsing for DD/MM/YYYY
-            const parts = params.date.split('/');
+            const parts = dateValue.split('/');
             if (parts.length === 3) {
               const day = parseInt(parts[0], 10);
               const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
@@ -331,9 +355,9 @@ export async function handleFunctionCall(
               if (!isNaN(manualDate.getTime())) {
                 const dayName = getDayOfWeekName(manualDate);
                 const dayNumber = getDayOfWeekNumber(manualDate);
-                console.log(`✅ Manual parsing success: ${params.date} is a ${dayName}`);
+                console.log(`✅ Manual parsing success: ${dateValue} is a ${dayName}`);
                 result = {
-                  date: params.date,
+                  date: dateValue,
                   day_of_week: dayName,
                   day_number: dayNumber,
                   formatted: `${dayName}, ${manualDate.toLocaleDateString("en-GB", {
@@ -349,12 +373,16 @@ export async function handleFunctionCall(
             console.error("❌ Alternative parsing also failed:", altError);
           }
           
+          const functionParams = params || functionCallData.parameters || {};
+          const dateValue = functionParams.date;
+          
           result = {
-            error: `Invalid date format: "${params.date}". Please use DD/MM/YYYY format (e.g., 16/09/2025).`,
+            error: `Invalid date format: "${dateValue || 'undefined'}". Please use DD/MM/YYYY format (e.g., 16/09/2025).`,
             debug_info: {
-              received_date: params.date,
-              date_type: typeof params.date,
-              error_message: error.message
+              received_date: dateValue,
+              date_type: typeof dateValue,
+              error_message: error.message,
+              function_call_data: functionCallData
             }
           };
         }
