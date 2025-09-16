@@ -998,11 +998,11 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     // Send SMS confirmation for the updated booking
     try {
-      if (result.booking && customer_phone) {
+      if (result.booking && callerPhone) {
         await sendSMSConfirmation({
           businessId: businessConfig.business.id,
-          customerName: customer_name,
-          customerPhone: customer_phone,
+          customerName: customerNameToUse,
+          customerPhone: callerPhone,
           appointmentDate: result.booking.date,
           appointmentTime: result.booking.start_time,
           serviceName: result.booking.service_name,
@@ -1010,6 +1010,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
           appointmentId: result.booking.id,
         }, businessConfig);
         console.log("📱 SMS confirmation sent for updated booking");
+      } else {
+        console.log("⚠️ SMS not sent - missing booking result or caller phone");
       }
     } catch (smsError) {
       console.error("❌ Failed to send SMS for updated booking:", smsError);
