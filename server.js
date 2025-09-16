@@ -10,7 +10,7 @@ import {
   closeDeepgramConnection,
   saveConversationTranscript,
 } from "./deepgram.js";
-import { clearCallSession, getCallSession, endCall } from "./functionHandlers.js";
+import { clearCallSession, getCallSession, endCall, sendConsolidatedSMSConfirmation } from "./functionHandlers.js";
 import { db, supabase } from "./database.js";
 
 // Validate configuration on startup
@@ -361,10 +361,51 @@ wss.on("connection", async (ws, req) => {
             }
             
             if (configToUse) {
-              // Use the endCall function which already has the SMS confirmation logic
+              // Use the endCall function which already has the SMS confirmation logic and clears session
               await endCall(callSid, { reason: "abrupt disconnect" }, configToUse);
+              
+              // Check if session still exists (means SMS failed and session was retained)
+              const sessionAfterEndCall = getCallSession(callSid);
+              if (sessionAfterEndCall) {
+                console.log(`⚠️ Session still exists after endCall - SMS likely failed, attempting direct SMS retry for ${callSid}`);
+                
+                // Try to send SMS directly one more time
+                 try {
+                  
+                  // Prepare final bookings from session
+                  const finalBookings = [];
+                  if (sessionAfterEndCall.bookings) {
+                    for (const booking of sessionAfterEndCall.bookings) {
+                      if (booking.appointmentId) {
+                        finalBookings.push(booking);
+                      }
+                    }
+                  }
+                  
+                  if (finalBookings.length > 0) {
+                    await sendConsolidatedSMSConfirmation(
+                      {
+                        businessId: configToUse.business.id,
+                        customerPhone: sessionAfterEndCall.callerPhone,
+                        customerName: sessionAfterEndCall.customerName,
+                        bookings: finalBookings,
+                      },
+                      configToUse
+                    );
+                    console.log(`✅ SMS retry successful for abrupt disconnect: ${callSid}`);
+                  }
+                  
+                  // Clear session after successful retry
+                  clearCallSession(callSid);
+                } catch (retryError) {
+                  console.error(`❌ SMS retry failed for abrupt disconnect ${callSid}:`, retryError);
+                  // Clear session anyway to prevent memory leaks
+                  clearCallSession(callSid);
+                }
+              }
+              
               smsConfirmationSent = true;
-              console.log(`✅ SMS confirmations sent for abrupt disconnect: ${callSid}`);
+              console.log(`✅ SMS confirmations handled for abrupt disconnect: ${callSid}`);
             } else {
               console.error(`❌ Could not load business config for SMS confirmations: ${callSid}`);
               clearCallSession(callSid);
