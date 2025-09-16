@@ -9,6 +9,8 @@ import {
   UK_TIMEZONE,
   formatISODate,
   getDayOfWeekNumber,
+  formatConversationalDate,
+  formatConversationalTime,
 } from "./dateUtils.js";
 import { isWithinBusinessHours } from "./utils.js";
 import { db } from "./database.js";
@@ -685,6 +687,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
       notes: `Voice booking - Customer: ${customer_name}${
         phoneToUse ? ` - Phone: ${phoneToUse}` : ""
       }`,
+      sessionId: callSid, // Pass session ID for filler phrase generation
     };
 
     console.log("📞 Calling internal Next.js booking API...");
@@ -909,6 +912,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       current_date: currentDateToUse,
       current_time: currentTimeToUse,
       caller_phone: callerPhone,
+      sessionId: callSid, // Pass session ID for filler phrase generation
     };
 
     // Update session with new booking details if provided
@@ -1068,6 +1072,7 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
           time: timeToUse,
           reason: reason || "Customer requested cancellation",
           caller_phone: callerPhone,
+          sessionId: callSid, // Pass session ID for filler phrase generation
         }),
       }
     );
@@ -1150,11 +1155,19 @@ export async function endCall(callSid, params, businessConfig = null) {
       try {
         // Track booking evolution: group by appointment chains
         const bookingChains = new Map(); // appointmentId -> array of booking states
+        const cancelledAppointments = new Set(); // Track cancelled appointment IDs
         const finalBookings = [];
         
-        // First pass: group bookings by appointment ID and track evolution
+        // First pass: track cancellations and group bookings by appointment ID
         for (const booking of session.bookings) {
-          if (booking.type === 'cancellation') continue;
+          if (booking.type === 'cancellation') {
+            // Track cancelled appointments
+            if (booking.appointmentId) {
+              cancelledAppointments.add(booking.appointmentId);
+              console.log(`❌ Appointment ${booking.appointmentId} was cancelled - will not send SMS`);
+            }
+            continue;
+          }
           
           if (booking.type === 'create' && booking.appointmentId) {
             // New booking created
@@ -1214,6 +1227,12 @@ export async function endCall(callSid, params, businessConfig = null) {
         // Second pass: determine final state for each booking chain
         for (const [appointmentId, chain] of bookingChains) {
           if (chain.length === 0) continue;
+          
+          // Skip cancelled appointments - they should not receive SMS confirmations
+          if (cancelledAppointments.has(appointmentId)) {
+            console.log(`🚫 Skipping SMS for cancelled appointment ${appointmentId}`);
+            continue;
+          }
           
           // Find the final state by looking at the last booking with complete info
           let finalBooking = null;
@@ -1433,8 +1452,8 @@ async function sendSMSConfirmation(params, businessConfig) {
 
   // Get custom SMS template from business config or use default
   const template =
-    businessConfig?.config?.sms_confirmation_template ||
-    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. See you soon! {business_phone}`;
+    businessConfig?.sms_configuration?.confirmation_message ||
+    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
 
   // Replace template variables with actual values
   const message = template
@@ -1483,18 +1502,48 @@ async function sendSMSConfirmation(params, businessConfig) {
 async function sendConsolidatedSMSConfirmation(params, businessConfig) {
   const { businessId, customerPhone, customerName, bookings } = params;
 
-  // Build message with all bookings
-  let message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
+  // Get the template from dashboard configuration
+  const template = businessConfig?.sms_configuration?.confirmation_message ||
+    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
+
+  // For multiple bookings, create a consolidated message using the template structure
+  let message;
   
-  bookings.forEach((booking, index) => {
+  if (bookings.length === 1) {
+    // Single booking - use template directly
+    const booking = bookings[0];
     const date = booking.finalDate || booking.date;
     const time = booking.finalTime || booking.time;
     const serviceName = booking.serviceName || booking.service_name || "your service";
+    const duration = booking.serviceDuration || booking.duration || "";
     
-    message += `${index + 1}. ${serviceName} on ${date} at ${time}\n`;
-  });
-  
-  message += `\nSee you soon! ${businessConfig?.business?.phone || ""}`;
+    message = template
+      .replace(/{customer_name}/g, customerName)
+      .replace(/{business_name}/g, businessConfig?.business?.name || "our business")
+      .replace(/{date}/g, date)
+      .replace(/{time}/g, time)
+      .replace(/{service_name}/g, serviceName)
+      .replace(/{duration}/g, duration)
+      .replace(/{business_phone}/g, businessConfig?.business?.phone || "");
+  } else {
+    // Multiple bookings - adapt template for consolidated format
+    message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
+    
+    bookings.forEach((booking, index) => {
+      const date = booking.finalDate || booking.date;
+      const time = booking.finalTime || booking.time;
+      const serviceName = booking.serviceName || booking.service_name || "your service";
+      const duration = booking.serviceDuration || booking.duration || "";
+      
+      message += `${index + 1}. ${serviceName} on ${date} at ${time}`;
+      if (duration) {
+        message += ` (${duration} mins)`;
+      }
+      message += `\n`;
+    });
+    
+    message += `\nQuestions? Call ${businessConfig?.business?.phone || ""}`;
+  }
 
   // Call the SMS API with the first booking's appointment ID for tracking
   const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";

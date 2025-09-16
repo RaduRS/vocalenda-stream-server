@@ -10,7 +10,7 @@ import {
   closeDeepgramConnection,
   saveConversationTranscript,
 } from "./deepgram.js";
-import { clearCallSession } from "./functionHandlers.js";
+import { clearCallSession, getCallSession, endCall } from "./functionHandlers.js";
 import { db, supabase } from "./database.js";
 
 // Validate configuration on startup
@@ -44,6 +44,7 @@ wss.on("connection", async (ws, req) => {
   let callSid = null;
   let businessConfig = null;
   let transcriptSaved = false;
+  let smsConfirmationSent = false; // Track if SMS confirmations have been sent
   let deepgramReady = false; // Track if Deepgram is ready to receive audio
   let expectingFunctionCall = false;
   let functionCallTimeout = null;
@@ -269,6 +270,21 @@ wss.on("connection", async (ws, req) => {
               await db.updateCallStatus(callSid, "completed", endTime);
               console.log(`✅ Call completion logged: ${callSid}`);
               
+              // Send SMS confirmations for any pending bookings before call ends
+              if (!smsConfirmationSent) {
+                try {
+                  const session = getCallSession(callSid);
+                  if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled && businessConfig) {
+                    console.log(`📱 Media stream stopped - sending SMS confirmations for ${callSid}`);
+                    await endCall(callSid, { reason: "media stream stopped" }, businessConfig);
+                    smsConfirmationSent = true;
+                    console.log(`✅ SMS confirmations sent on media stop: ${callSid}`);
+                  }
+                } catch (smsError) {
+                  console.error(`❌ Error sending SMS confirmations on media stop ${callSid}:`, smsError);
+                }
+              }
+              
               // Save conversation transcript
               await saveConversationTranscript(callSid, deepgramWs);
               transcriptSaved = true;
@@ -329,9 +345,43 @@ wss.on("connection", async (ws, req) => {
       closeDeepgramConnection(deepgramWs);
     }
 
-    // Clear the call session if needed
+    // Handle SMS confirmations for abrupt disconnections before clearing session
     if (callSid) {
-      clearCallSession(callSid);
+      try {
+        // Only send SMS confirmations if not already sent
+        if (!smsConfirmationSent) {
+          const session = getCallSession(callSid);
+          if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled) {
+            console.log(`📱 Call disconnected abruptly - checking for pending SMS confirmations for ${callSid}`);
+            
+            // Use existing businessConfig or load it if needed
+            let configToUse = businessConfig;
+            if (!configToUse) {
+              configToUse = await loadBusinessConfig(session.businessId || callSid);
+            }
+            
+            if (configToUse) {
+              // Use the endCall function which already has the SMS confirmation logic
+              await endCall(callSid, { reason: "abrupt disconnect" }, configToUse);
+              smsConfirmationSent = true;
+              console.log(`✅ SMS confirmations sent for abrupt disconnect: ${callSid}`);
+            } else {
+              console.error(`❌ Could not load business config for SMS confirmations: ${callSid}`);
+              clearCallSession(callSid);
+            }
+          } else {
+            // No bookings to confirm, just clear the session
+            clearCallSession(callSid);
+          }
+        } else {
+          // SMS confirmations already sent, just clear the session
+          clearCallSession(callSid);
+        }
+      } catch (error) {
+        console.error(`❌ Error handling SMS confirmations for abrupt disconnect ${callSid}:`, error);
+        // Still clear the session even if SMS fails
+        clearCallSession(callSid);
+      }
     }
   });
 
