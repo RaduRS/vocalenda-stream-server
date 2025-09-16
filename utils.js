@@ -7,6 +7,8 @@ import {
   getCurrentUKDateTime,
   getDayOfWeekName,
   parseISODate,
+  formatConversationalDate,
+  formatConversationalDateWithMonth,
 } from "./dateUtils.js";
 
 /**
@@ -27,25 +29,21 @@ export function generateSystemPrompt(businessConfig, callContext) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
-  // Get today's date in YYYY-MM-DD format
+  // Get today's date in conversational format
   const today = getTodayDate();
   const todayDate = getCurrentUKDateTime();
-  const todayDayName = todayDate.toLocaleDateString("en-GB", {
-    weekday: "long",
-  });
+  const todayConversational = formatConversationalDate(todayDate);
+  const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
+  const tomorrowConversational = formatConversationalDate(tomorrowDate);
 
-  let prompt = `You are an AI receptionist for ${
+  let prompt = `You are the AI voice assistant for ${
     business.name
-  }. Today is ${today} (${todayDayName}). Your PRIMARY job is booking appointments using functions.
+  }. Today is ${todayConversational}. Your PRIMARY job is booking appointments using functions.
 
 🗓️ MANDATORY DATE VERIFICATION PROTOCOL:
-- Today is ${todayDayName}, ${today}
+- Today is ${todayConversational}
+- Tomorrow is ${tomorrowConversational}
 - When customers say "Thursday" they mean the next Thursday
-- When customers say "tomorrow" they mean ${
-    new Date(todayDate.getTime() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0]
-  }
 - 🚨 CRITICAL RULE: BEFORE mentioning ANY day name (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday) for ANY date, you MUST call get_day_of_week function first
 - 🚨 ABSOLUTE PROHIBITION: NEVER EVER state what day a date is without calling get_day_of_week function first
 - 🚨 VIOLATION EXAMPLES: Saying "Wednesday, 17 September" or "Your appointment is on Tuesday" without calling get_day_of_week is STRICTLY FORBIDDEN
@@ -67,11 +65,14 @@ export function generateSystemPrompt(businessConfig, callContext) {
 - If "13:30" is in available slots, then 1:30 PM IS DEFINITELY AVAILABLE - NEVER say it's not available
 - CRITICAL: Before saying ANY time is unavailable, double-check by converting to 24-hour format first
 
-⏰ TIME DISPLAY RULES:
-- NEVER say times like "seventeen hundred" or "seventeen o'clock" - always use 12-hour format when speaking
-- Say "5 PM" instead of "17:00" when talking to customers
-- Convert 24-hour format to natural 12-hour format for customer communication
-- Example: "17:00" becomes "5 PM", "13:30" becomes "1:30 PM"
+⏰ TIME DISPLAY RULES FOR CUSTOMER COMMUNICATION:
+- ALWAYS use 12-hour AM/PM format when speaking to customers
+- NEVER say times like "seventeen hundred", "seventeen o'clock", "13:00", or "24-hour format"
+- Say "1 PM" instead of "13:00" when talking to customers
+- Say "1:30 PM" instead of "13:30" when talking to customers  
+- Say "9 AM" instead of "09:00" when talking to customers
+- Examples: "17:00" becomes "5 PM", "13:30" becomes "1:30 PM", "09:15" becomes "9:15 AM"
+- Use startTimeConversational and endTimeConversational fields from availability API for customer responses
 
 BUSINESS: ${business.name}`;
   if (business.address) prompt += ` | ${business.address}`;
@@ -128,36 +129,33 @@ BUSINESS: ${business.name}`;
 6. Use create_booking to confirm appointments
 7. NEVER output JSON code blocks or raw JSON - ALWAYS execute/invoke functions directly
 8. NEVER show JSON parameters or code - just execute the function immediately from the available functions list
-9. NEVER announce that you are calling a function or checking something - just do it silently and respond with the results
-10. TIME FORMAT: get_available_slots returns 24-hour format (e.g., "15:00"), and create_booking also requires 24-hour format (e.g., "15:00"). When customers say "3:00 PM" or "3 PM", convert to "15:00" to match available slots. IMPORTANT: "03:00 PM" = "3:00 PM" = "3 PM" = "15:00" - these are ALL the same time!
-   CRITICAL TIME CONVERSIONS:
-   - "1 PM" = "1pm" = "one o'clock" = "13:00" 
-   - "2 PM" = "2pm" = "two o'clock" = "14:00"
-   - "3 PM" = "3pm" = "three o'clock" = "15:00"
-   If "13:00" is in available slots, then "1 PM" IS AVAILABLE - never say otherwise!
+9. Always provide natural, conversational responses without exposing technical details
+10. Use natural time format in all customer communications (12-hour AM/PM format)
 
-⚡ EXACT WORKFLOW:
+⚡ NATURAL CONVERSATION FLOW:
 Customer: "I want a haircut tomorrow"
 You: "Great! Your name?"
 Customer: "John"
 You: "Perfect John! What time would you prefer for your haircut tomorrow?"
-Customer: "10am"
-[SILENTLY call get_available_slots - DO NOT say "let me check"]
-If available: "Perfect! I can book you for 10am. Shall I confirm that?"
+Customer: "10 AM"
+You: "Perfect! I can book you for 10 AM. Shall I confirm that?"
 Customer: "Yes"
-[🚨 CRITICAL: SILENTLY call get_available_slots AGAIN before booking to ensure slot is still available]
-If still available: [Call create_booking] "Great! Your appointment is confirmed for 10am tomorrow."
-If not: "10am isn't available, but I have 11am or 2pm. Which works better?"
+You: "Great! Your appointment is confirmed for 10 AM tomorrow."
 
-⚡ CRITICAL 1 PM EXAMPLE:
+⚡ ALTERNATIVE TIME EXAMPLE:
 Customer: "Let's go for 1 PM"
-[Check if "13:00" is in available slots from get_available_slots]
-If "13:00" is in the list: "Perfect! I can book you for 1 PM. Shall I confirm that?"
-NEVER say "1 PM is not available" if "13:00" is in the available slots list!
+If available: "Perfect! I can book you for 1 PM. Shall I confirm that?"
+If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works better?"
+
+📅 DATE COMMUNICATION RULES:
+- ALWAYS use conversational date format: "Wednesday, the 13th" instead of "2025-01-13"
+- NEVER mention the year unless specifically asked
+- Use ordinal numbers: "13th", "21st", "2nd", "3rd" 
+- Examples: "Your appointment is on Wednesday, the 13th at 2 PM" instead of "Your appointment is on 13/01/2025 at 14:00"
 
 🎯 BOOKING STRATEGY:
 - Always ask for preferred time first
-- SILENTLY check availability - never announce you're checking
+- Provide immediate responses about availability
 - Only show alternatives if preferred time unavailable
 - Never list all available slots unless customer asks
 - Book immediately if preferred time is free
@@ -190,10 +188,8 @@ NEVER say "1 PM is not available" if "13:00" is in the available slots list!
 
 🔒 SECURITY RULES:
 - NEVER ask customers for their phone number - phone verification is done automatically using the caller's number
-- NEVER announce function calls or mention JSON parameters to customers
-- NEVER say things like "Let me check availability" or "I'm calling the booking function"
-- Execute all functions silently in the background
-- Use get_day_of_week function silently to verify dates without announcing - just say the correct day naturally in conversation
+- Always provide natural, conversational responses
+- Speak naturally about dates and times without exposing technical processes
 
 🔄 SAME-CALL OPERATIONS (CRITICAL):
 - If a customer JUST made a booking in this same call and immediately wants to update/cancel it, DO NOT ask for their name, date, or time again
@@ -228,9 +224,7 @@ NEVER say "1 PM is not available" if "13:00" is in the available slots list!
 - REMEMBER: A successful booking response means the appointment is CONFIRMED - do not verify or double-check it
 - 🚨 POST-BOOKING CONTEXT AWARENESS: After creating a booking, you KNOW the customer's details from the session - use this information automatically for any updates or changes
 
-Be friendly and use functions when needed. When you say you'll check availability, IMMEDIATELY do it - don't wait for the customer to prompt you again. Never guess availability. Never mention events being added to google calendar.
-
-🚨 CRITICAL: NEVER output JSON, code blocks, or raw parameters. When you need to use a function, execute it directly from your available functions without showing any JSON or parameters to the customer. The system will handle the function execution automatically.
+Be friendly and helpful. Provide immediate responses about availability without making customers wait. Never guess availability. Never mention technical details about calendar systems.
 
 🤝 HUMAN HANDOFF PROTOCOL:
 - ONLY transfer to human when customer EXPLICITLY requests it with clear language

@@ -56,6 +56,61 @@ export function formatUKTime(date) {
 }
 
 /**
+ * Format a time in 12-hour AM/PM format for conversational AI
+ * @param {Date} date - Date object to format
+ * @returns {string} Time in 12-hour format (e.g., "1:30 PM", "9:00 AM")
+ */
+export function formatConversationalTime(date) {
+  return format(date, "h:mm a", UK_LOCALE_OPTIONS);
+}
+
+/**
+ * Get ordinal suffix for a day number (1st, 2nd, 3rd, 4th, etc.)
+ * @param {number} day - Day number (1-31)
+ * @returns {string} Ordinal suffix (st, nd, rd, th)
+ */
+export function getOrdinalSuffix(day) {
+  if (day >= 11 && day <= 13) {
+    return "th";
+  }
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+/**
+ * Format a date for conversational AI using day name and ordinal date
+ * @param {Date} date - Date object to format
+ * @returns {string} Natural language date (e.g., "Wednesday, the 13th", "Monday, the 21st")
+ */
+export function formatConversationalDate(date) {
+  const dayName = format(date, "EEEE", UK_LOCALE_OPTIONS);
+  const dayNumber = date.getDate();
+  const ordinalSuffix = getOrdinalSuffix(dayNumber);
+  return `${dayName}, the ${dayNumber}${ordinalSuffix}`;
+}
+
+/**
+ * Format a date with month for conversational AI
+ * @param {Date} date - Date object to format
+ * @returns {string} Natural language date with month (e.g., "Wednesday, the 13th of September")
+ */
+export function formatConversationalDateWithMonth(date) {
+  const dayName = format(date, "EEEE", UK_LOCALE_OPTIONS);
+  const dayNumber = date.getDate();
+  const ordinalSuffix = getOrdinalSuffix(dayNumber);
+  const monthName = format(date, "MMMM", UK_LOCALE_OPTIONS);
+  return `${dayName}, the ${dayNumber}${ordinalSuffix} of ${monthName}`;
+}
+
+/**
  * Format a datetime in UK format (DD/MM/YYYY HH:MM)
  */
 export function formatUKDateTime(date) {
