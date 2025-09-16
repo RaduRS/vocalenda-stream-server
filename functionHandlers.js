@@ -996,6 +996,26 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       setCallSession(callSid, { bookings: bookings });
     }
 
+    // Send SMS confirmation for the updated booking
+    try {
+      if (result.booking && customer_phone) {
+        await sendSMSConfirmation({
+          businessId: businessConfig.business.id,
+          customerName: customer_name,
+          customerPhone: customer_phone,
+          appointmentDate: result.booking.date,
+          appointmentTime: result.booking.start_time,
+          serviceName: result.booking.service_name,
+          serviceDuration: result.booking.duration_minutes,
+          appointmentId: result.booking.id,
+        }, businessConfig);
+        console.log("📱 SMS confirmation sent for updated booking");
+      }
+    } catch (smsError) {
+      console.error("❌ Failed to send SMS for updated booking:", smsError);
+      // Don't fail the entire operation if SMS fails
+    }
+
     return {
       success: true,
       message: `Booking updated successfully for ${customer_name}`,
@@ -1452,7 +1472,7 @@ async function sendSMSConfirmation(params, businessConfig) {
 
   // Get custom SMS template from business config or use default
   const template =
-    businessConfig?.sms_configuration?.confirmation_message ||
+    businessConfig?.config?.sms_confirmation_template ||
     `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
 
   // Replace template variables with actual values
@@ -1466,7 +1486,7 @@ async function sendSMSConfirmation(params, businessConfig) {
     .replace(/{time}/g, appointmentTime)
     .replace(/{service_name}/g, serviceName)
     .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : "")
-    .replace(/{business_phone}/g, businessConfig?.business?.phone || "");
+    .replace(/{business_phone}/g, businessConfig?.business?.phone_number || "");
 
   // Call the SMS API
   const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
@@ -1503,7 +1523,7 @@ async function sendConsolidatedSMSConfirmation(params, businessConfig) {
   const { businessId, customerPhone, customerName, bookings } = params;
 
   // Get the template from dashboard configuration
-  const template = businessConfig?.sms_configuration?.confirmation_message ||
+  const template = businessConfig?.config?.sms_confirmation_template ||
     `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
 
   // For multiple bookings, create a consolidated message using the template structure
@@ -1515,7 +1535,7 @@ async function sendConsolidatedSMSConfirmation(params, businessConfig) {
     const date = booking.finalDate || booking.date;
     const time = booking.finalTime || booking.time;
     const serviceName = booking.serviceName || booking.service_name || "your service";
-    const duration = booking.serviceDuration || booking.duration || "";
+    const duration = booking.serviceDuration || booking.duration || booking.lastServiceDuration || "";
     
     message = template
       .replace(/{customer_name}/g, customerName)
@@ -1523,8 +1543,8 @@ async function sendConsolidatedSMSConfirmation(params, businessConfig) {
       .replace(/{date}/g, date)
       .replace(/{time}/g, time)
       .replace(/{service_name}/g, serviceName)
-      .replace(/{duration}/g, duration)
-      .replace(/{business_phone}/g, businessConfig?.business?.phone || "");
+      .replace(/{duration}/g, duration ? `${duration}` : "")
+      .replace(/{business_phone}/g, businessConfig?.business?.phone_number || "");
   } else {
     // Multiple bookings - adapt template for consolidated format
     message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
@@ -1542,7 +1562,7 @@ async function sendConsolidatedSMSConfirmation(params, businessConfig) {
       message += `\n`;
     });
     
-    message += `\nQuestions? Call ${businessConfig?.business?.phone || ""}`;
+    message += `\nQuestions? Call ${businessConfig?.business?.phone_number || ""}`;
   }
 
   // Call the SMS API with the first booking's appointment ID for tracking
