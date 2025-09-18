@@ -1007,6 +1007,15 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             })
           );
 
+          // Set a 7-second timeout to ensure call ends even if AI doesn't finish speaking
+          setTimeout(() => {
+            console.log(`[${timestamp}] ⏰ TIMEOUT: Force ending call after 7 seconds`);
+            // Import and call end_call function directly
+            import('./functionHandlers.js').then(({ end_call }) => {
+              end_call({ reason: "silence timeout after 7 seconds" });
+            });
+          }, 7000);
+
           // Clear silence tracking since we're ending the call
           connectionState.silenceManager.cleanup();
         } else if (silenceDuration < 15000) {

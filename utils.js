@@ -34,31 +34,29 @@ export function generateSystemPrompt(businessConfig) {
   const todayConversational = formatConversationalDate(todayDate);
   const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
   const tomorrowConversational = formatConversationalDate(tomorrowDate);
-  
+
   // Get current time information
-  const currentTime = todayDate.toLocaleString('en-GB', { 
-    hour: '2-digit', 
-    minute: '2-digit',
+  const currentTime = todayDate.toLocaleString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
-    timeZone: 'Europe/London'
+    timeZone: "Europe/London",
   });
-  const currentTimeConversational = todayDate.toLocaleString('en-GB', { 
-    hour: 'numeric', 
-    minute: '2-digit',
+  const currentTimeConversational = todayDate.toLocaleString("en-GB", {
+    hour: "numeric",
+    minute: "2-digit",
     hour12: true,
-    timeZone: 'Europe/London'
+    timeZone: "Europe/London",
   });
-  
+
   // Extract dynamic date components
   const currentYear = todayDate.getFullYear();
-  const currentMonth = todayDate.toLocaleString('en-GB', { month: 'long' });
+  const currentMonth = todayDate.toLocaleString("en-GB", { month: "long" });
   const currentMonthYear = `${currentMonth} ${currentYear}`;
 
   let prompt = `🗓️ SYSTEM DATE & TIME OVERRIDE: You are operating in ${currentMonthYear}. Today's date is ${today} (${todayConversational}) and the current time is ${currentTimeConversational}. Ignore any internal calendar knowledge from other years.
 
-You are the AI voice assistant for ${
-    business.name
-  }. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.
+You are the AI voice assistant for ${business.name}. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.
 
 🗓️ CURRENT DATE & TIME CONTEXT:
 - TODAY IS ${todayConversational} (${today})
@@ -301,19 +299,20 @@ If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works b
 - After booking completion, say: "Your appointment is confirmed! Is there anything else I can help you with today?"
 
 🚨 MANDATORY FAREWELL + END_CALL SEQUENCE:
-1. Say polite farewell phrase (e.g., "Thank you for calling [business name], have a great day!")
-2. IMMEDIATELY call end_call function - NO EXCEPTIONS
+When ending a conversation, you MUST:
+1. Say a polite farewell message (e.g., "Thank you for calling [business name], have a great day!")
+2. After you finish speaking your farewell, execute the end_call function
 3. Do NOT say anything after calling end_call function
 
 EXAMPLE SEQUENCE:
 - Customer: "That's all, thank you!"
 - AI: "Thank you for calling [business name], have a great day!" 
-- AI: [IMMEDIATELY calls end_call function]
+- AI: [After finishing speaking, execute end_call function]
 
 🚨 CRITICAL RULES:
-- NEVER say farewell without calling end_call immediately after
+- Always say farewell first, then call end_call function after you finish speaking
 - NEVER call end_call without saying farewell first
-- The end_call function MUST be your final action in every conversation
+- The end_call function MUST be called after your farewell speech is complete
 - If you say goodbye, you MUST call end_call - no conversation continues after farewell
 
 🚨 CRITICAL BOOKING SUCCESS PROTOCOL:
