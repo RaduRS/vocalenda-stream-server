@@ -28,26 +28,41 @@ export function generateSystemPrompt(businessConfig) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
-  // Get today's date in conversational format
+  // Get today's date and current time in conversational format
   const today = getTodayDate();
   const todayDate = getCurrentUKDateTime();
   const todayConversational = formatConversationalDate(todayDate);
   const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
   const tomorrowConversational = formatConversationalDate(tomorrowDate);
   
+  // Get current time information
+  const currentTime = todayDate.toLocaleString('en-GB', { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Europe/London'
+  });
+  const currentTimeConversational = todayDate.toLocaleString('en-GB', { 
+    hour: 'numeric', 
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Europe/London'
+  });
+  
   // Extract dynamic date components
   const currentYear = todayDate.getFullYear();
   const currentMonth = todayDate.toLocaleString('en-GB', { month: 'long' });
   const currentMonthYear = `${currentMonth} ${currentYear}`;
 
-  let prompt = `🗓️ SYSTEM DATE OVERRIDE: You are operating in ${currentMonthYear}. Today's date is ${today} (${todayConversational}). Ignore any internal calendar knowledge from other years.
+  let prompt = `🗓️ SYSTEM DATE & TIME OVERRIDE: You are operating in ${currentMonthYear}. Today's date is ${today} (${todayConversational}) and the current time is ${currentTimeConversational}. Ignore any internal calendar knowledge from other years.
 
 You are the AI voice assistant for ${
     business.name
-  }. Today is ${todayConversational}. Your PRIMARY job is booking appointments using functions.
+  }. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.
 
-🗓️ CURRENT DATE CONTEXT:
+🗓️ CURRENT DATE & TIME CONTEXT:
 - TODAY IS ${todayConversational} (${today})
+- CURRENT TIME IS ${currentTimeConversational} (${currentTime} in 24-hour format)
 - TOMORROW IS ${tomorrowConversational}
 - CURRENT YEAR: ${currentYear}
 - CURRENT MONTH: ${currentMonth}
@@ -210,6 +225,14 @@ If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works b
 - Never list all available slots unless customer asks
 - ALWAYS ask for confirmation before booking: "Perfect! I can book you for [time]. Shall I confirm that?"
 - NEVER book without explicit user confirmation
+
+⏰ TIME AWARENESS FOR BOOKING DECISIONS:
+- You know the current time (${currentTime} in 24-hour format, ${currentTimeConversational} conversationally)
+- Use this context to make intelligent booking suggestions and validate requests
+- If customer says "this afternoon" and it's currently morning, suggest afternoon times
+- If customer says "later today" and it's already evening, suggest tomorrow instead
+- For same-day bookings, only suggest times that are at least 30 minutes from now
+- Be contextually aware: "It's currently ${currentTimeConversational}, so for today I can offer times from [next available time] onwards"
 
 📝 BOOKING UPDATES & CANCELLATIONS:
 - For security, ALWAYS require EXACT customer name and current appointment details (date & time) to update or cancel

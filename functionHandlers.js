@@ -10,6 +10,7 @@ import {
   formatISODate,
   getDayOfWeekNumber,
   getShortTimestamp,
+  isBookingInPast,
 } from "./dateUtils.js";
 import { isWithinBusinessHours } from "./utils.js";
 import { db } from "./database.js";
@@ -760,6 +761,25 @@ export async function createBooking(businessConfig, params, callSid = null) {
           "Missing required information: name, service, date, and time are required",
       };
     }
+
+    // Convert 12-hour format to 24-hour if needed for validation
+    const validationTime = time.includes("AM") || time.includes("PM") || time.includes("am") || time.includes("pm")
+      ? convert12to24Hour(time)
+      : time;
+
+    // Check if the booking time is in the past
+    const businessInfo = businessConfig.business;
+    const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
+    const pastCheck = isBookingInPast(date, validationTime, validationTimezone);
+    
+    if (pastCheck.isPast) {
+      console.error(`❌ ${pastCheck.message}`);
+      return {
+        error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`,
+      };
+    }
+    
+    console.log(`✅ Booking time validation passed: ${pastCheck.bookingTime} is in the future`);
 
     // Find the service (try by ID first, then by name as fallback)
     let service = businessConfig.services.find((s) => s.id === service_id);

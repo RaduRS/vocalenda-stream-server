@@ -42,6 +42,68 @@ export function getShortTimestamp() {
 }
 
 /**
+ * Check if a booking date and time is in the past
+ * @param {string} dateString - Date in YYYY-MM-DD format
+ * @param {string} timeString - Time in HH:MM format (24-hour)
+ * @param {string} timezone - Timezone to use (defaults to UK_TIMEZONE)
+ * @returns {Object} { isPast: boolean, message: string, currentTime: string }
+ */
+export function isBookingInPast(dateString, timeString, timezone = UK_TIMEZONE) {
+  try {
+    // Get current time in the specified timezone
+    const now = toZonedTime(new Date(), timezone);
+    
+    // Parse the booking date and time
+    const bookingDate = parseISO(dateString);
+    if (!isValid(bookingDate)) {
+      return {
+        isPast: false,
+        message: "Invalid date format",
+        currentTime: format(now, "yyyy-MM-dd HH:mm")
+      };
+    }
+    
+    // Parse the time and create a full datetime
+    const [hours, minutes] = timeString.split(':').map(Number);
+    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      return {
+        isPast: false,
+        message: "Invalid time format",
+        currentTime: format(now, "yyyy-MM-dd HH:mm")
+      };
+    }
+    
+    // Create the booking datetime in the specified timezone
+    const bookingDateTime = new Date(bookingDate);
+    bookingDateTime.setHours(hours, minutes, 0, 0);
+    
+    // Convert to timezone-aware datetime
+    const bookingInTimezone = toZonedTime(bookingDateTime, timezone);
+    
+    // Compare with current time (add 5 minute buffer to prevent edge cases)
+    const bufferMinutes = 5;
+    const nowWithBuffer = new Date(now.getTime() + (bufferMinutes * 60 * 1000));
+    
+    const isPast = bookingInTimezone <= nowWithBuffer;
+    
+    return {
+      isPast,
+      message: isPast 
+        ? `Cannot book appointments in the past. Current time: ${format(now, "yyyy-MM-dd HH:mm")} (${timezone})`
+        : "Booking time is valid",
+      currentTime: format(now, "yyyy-MM-dd HH:mm"),
+      bookingTime: format(bookingInTimezone, "yyyy-MM-dd HH:mm")
+    };
+  } catch (error) {
+    return {
+      isPast: false,
+      message: `Error validating booking time: ${error.message}`,
+      currentTime: format(toZonedTime(new Date(), timezone), "yyyy-MM-dd HH:mm")
+    };
+  }
+}
+
+/**
  * Get the current date in UK timezone (time set to 00:00:00)
  */
 export function getCurrentUKDate() {
