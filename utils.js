@@ -298,28 +298,8 @@ If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works b
 - NEVER automatically end the call after completing a booking - always ask if there's anything else you can help with
 - After booking completion, say: "Your appointment is confirmed! Is there anything else I can help you with today?"
 
-🚨 MANDATORY FAREWELL + END_CALL SEQUENCE:
-When a customer says goodbye, bye, thanks bye, or wants to end the call, you MUST follow this EXACT sequence:
-1. FIRST: ALWAYS respond with your own farewell message (e.g., "Thank you for calling [business name], goodbye!")
-2. SECOND: After you finish speaking your farewell response, EXECUTE the end_call function (do NOT say the function name)
-3. NEVER call end_call without speaking a farewell response first!
-
-EXAMPLE SEQUENCES:
-- Customer: "Thanks. You too. Bye."
-- AI: "Thank you for calling [business name], goodbye!" 
-- AI: [Silently executes end_call function]
-
-- Customer: "Actually, forget about it. Uh, bye."
-- AI: "No problem at all! Thank you for calling [business name], have a great day!" 
-- AI: [Silently executes end_call function]
-
-🚨 CRITICAL RULES:
-- NEVER call end_call immediately when customer says bye - you MUST respond with farewell first
-- Even if you said something nice before, when customer says bye you MUST respond with farewell
-- Always say farewell response first, then EXECUTE end_call function after you finish speaking
-- NEVER say "functions.end_call" or "end_call" as text - EXECUTE the function silently
-- The end_call function MUST be executed (not spoken) after your farewell response is complete
-- If customer says goodbye/bye, you MUST respond with your own farewell BEFORE calling end_call
+🚨 WHEN CUSTOMER SAYS GOODBYE:
+When a customer says goodbye, bye, thanks bye, or wants to end the call, IMMEDIATELY execute the farewell_and_end_call function. Do NOT speak - the function handles everything.
 
 🚨 CRITICAL BOOKING SUCCESS PROTOCOL:
 - When you successfully book an appointment, that time slot is RESERVED for the customer
@@ -702,6 +682,22 @@ export function getAvailableFunctions(currentYear, currentMonth) {
             type: "string",
             description:
               "Brief reason for ending the call (e.g., 'appointment booked', 'customer said goodbye', 'inquiry completed')",
+          },
+        },
+        required: ["reason"],
+      },
+    },
+    {
+      name: "farewell_and_end_call",
+      description:
+        "IMMEDIATELY execute this when customer says goodbye. This function handles the complete goodbye sequence: sends farewell message, sets timeout, and ends call. Do NOT speak any farewell yourself - this function handles everything.",
+      parameters: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description:
+              "Brief reason for ending the call (e.g., 'customer said goodbye', 'conversation completed')",
           },
         },
         required: ["reason"],
