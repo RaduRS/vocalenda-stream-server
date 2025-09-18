@@ -72,6 +72,80 @@ export function clearCallSession(callSid) {
 }
 
 /**
+ * Generate a unique booking reference ID for session tracking
+ * @returns {string} A unique booking reference (e.g., "BK1", "BK2", etc.)
+ */
+function generateBookingReference() {
+  return `BK${Date.now().toString().slice(-6)}${Math.random().toString(36).substr(2, 2).toUpperCase()}`;
+}
+
+/**
+ * List current bookings in session with reference IDs for AI identification
+ * @param {string} callSid - The Twilio call SID
+ * @returns {Object} List of bookings with references and summary
+ */
+export function listCurrentBookings(callSid) {
+  if (!callSid) {
+    return { error: "No call session found" };
+  }
+
+  const session = getCallSession(callSid);
+  const bookings = session.bookings || [];
+  
+  if (bookings.length === 0) {
+    return { 
+      message: "No bookings found in this session",
+      bookings: []
+    };
+  }
+
+  // Format bookings for AI reference
+  const formattedBookings = bookings.map((booking, index) => {
+    const status = booking.appointmentId ? 'CONFIRMED' : 'PENDING';
+    const orderDescription = index === 0 ? 'first' : 
+                           index === bookings.length - 1 ? 'last' : 
+                           `${index + 1}${getOrdinalSuffix(index + 1)}`;
+    
+    // Determine booking source for better AI context
+    const bookingSource = booking.type === 'existing' ? 'from previous call' : 
+                         booking.type === 'create' ? 'created in this call' :
+                         booking.type === 'update' ? 'updated in this call' : 'unknown';
+    
+    return {
+      reference: booking.bookingReference,
+      order: orderDescription,
+      position: index + 1,
+      status: status,
+      customer: booking.customerName,
+      service: booking.serviceName,
+      date: booking.date,
+      time: booking.time,
+      appointmentId: booking.appointmentId,
+      type: booking.type || 'create',
+      source: bookingSource
+    };
+  });
+
+  return {
+    message: `Found ${bookings.length} booking${bookings.length > 1 ? 's' : ''} in this session`,
+    bookings: formattedBookings,
+    totalCount: bookings.length
+  };
+}
+
+/**
+ * Helper function to get ordinal suffix (1st, 2nd, 3rd, etc.)
+ */
+function getOrdinalSuffix(num) {
+  const j = num % 10;
+  const k = num % 100;
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+}
+
+/**
  * Proactively look up and store existing customer bookings in session
  * This should be called when a customer is first identified by phone number
  * @param {string} callSid - The Twilio call SID
@@ -114,12 +188,25 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
         });
         
         if (futureBookings.length > 0) {
+          // Convert existing bookings to session format with booking references
+          const sessionBookings = futureBookings.map(booking => ({
+            bookingReference: generateBookingReference(),
+            customerName: booking.customer_name,
+            serviceName: booking.service_name,
+            date: booking.appointment_date,
+            time: booking.start_time,
+            appointmentId: booking.id,
+            type: 'existing', // Mark as existing booking from previous call
+            originalBookingId: booking.id // Keep original ID for updates
+          }));
+
           // Store ALL future bookings in session for better handling
           setCallSession(callSid, {
             customerName: futureBookings[0].customer_name,
             hasExistingBookings: true,
             existingBookingsCount: futureBookings.length,
             allFutureBookings: futureBookings,
+            bookings: sessionBookings, // Add to bookings array with references
             // Only set current booking details if there's exactly one booking
             ...(futureBookings.length === 1 ? {
               currentDate: futureBookings[0].appointment_date,
@@ -439,6 +526,10 @@ export async function handleFunctionCall(
 
       case "get_available_slots":
         result = await getAvailableSlots(businessConfig, params, callSid);
+        break;
+
+      case "list_current_bookings":
+        result = listCurrentBookings(callSid);
         break;
 
       case "create_booking":
@@ -1048,6 +1139,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
       
       // Add this booking to the list (will be updated with appointment ID later)
       const newBooking = {
+        bookingReference: generateBookingReference(),
         customerName: customer_name,
         date: date,
         time: time,
@@ -1302,9 +1394,10 @@ export async function createBooking(businessConfig, params, callSid = null) {
 export async function updateBooking(businessConfig, params, callSid = null) {
   try {
     const timestamp = getShortTimestamp();
-    console.log(`[${timestamp}] 📝 UPDATE_BOOKING: ${params.current_date} ${params.current_time} → ${params.new_date || 'same'} ${params.new_time || 'same'}`);
+    console.log(`[${timestamp}] 📝 UPDATE_BOOKING: Booking reference ${params.booking_reference || 'not specified'}`);
 
     const {
+      booking_reference,
       customer_name,
       current_date,
       current_time,
@@ -1321,116 +1414,86 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       return { error: "Calendar not connected" };
     }
 
-    // Get session data to fill in missing customer information
+    // Get session data to find the specific booking
     const session = getCallSession(callSid);
     console.log("📋 Session data:", session);
 
-    // Use session data as fallback for missing information
-    const customerNameToUse = customer_name || session.customerName;
+    // CRITICAL: Use booking reference to identify the exact booking
+    let targetBooking = null;
     
-    // Validate we have the essential customer information
-    if (!customerNameToUse) {
-      return { 
-        error: "Missing customer information. Please use lookup_customer first to find the booking details." 
-      };
-    }
-    
-    // Improved logic to identify which appointment to update
-    let currentDateToUse = current_date || session.currentDate;
-    let currentTimeToUse = current_time || session.currentTime;
-    
-    // If no specific date/time provided, try to infer from context
-    if (!currentDateToUse || !currentTimeToUse) {
+    if (booking_reference) {
+      // Find booking by reference ID
       const bookings = session.bookings || [];
+      targetBooking = bookings.find(b => b.bookingReference === booking_reference);
       
-      // Look for the most recent 'create' booking that matches the context
-      // If new_service_id is provided, try to find a booking with that service
-      let targetBooking = null;
-      
-      if (new_service_id) {
-        // Find booking with matching service (search from most recent)
-        targetBooking = [...bookings].reverse().find(b => 
-          b.type === 'create' && 
-          b.serviceId === new_service_id && 
-          b.appointmentId &&
-          !b.updatedTo // Skip bookings that have already been updated
-        );
-      }
-      
-      // If no service match or no service specified, use the most recent create booking
       if (!targetBooking) {
-        targetBooking = [...bookings].reverse().find(b => 
-          b.type === 'create' && 
-          b.appointmentId &&
-          !b.updatedTo // Skip bookings that have already been updated
-        );
+        console.error(`❌ Booking reference ${booking_reference} not found in session`);
+        return { 
+          error: `Booking reference ${booking_reference} not found. Please use list_current_bookings to see available bookings.` 
+        };
       }
       
-      if (targetBooking) {
-        currentDateToUse = currentDateToUse || targetBooking.date;
-        currentTimeToUse = currentTimeToUse || targetBooking.time;
-        console.log("🎯 Identified target booking from session:", {
-          appointmentId: targetBooking.appointmentId,
-          service: targetBooking.serviceName,
-          date: targetBooking.date,
-          time: targetBooking.time
-        });
-      } else {
-        // Fallback to session data (old behavior)
-        currentDateToUse = currentDateToUse || session.lastBookingDate;
-        currentTimeToUse = currentTimeToUse || session.lastBookingTime;
-        console.log("⚠️ Using fallback session data - this may update the wrong appointment");
+      if (!targetBooking.appointmentId) {
+        console.error(`❌ Booking reference ${booking_reference} has no appointment ID`);
+        return { 
+          error: `Booking ${booking_reference} is not confirmed yet. Cannot update pending bookings.` 
+        };
       }
+      
+      console.log("🎯 Found target booking by reference:", {
+        reference: targetBooking.bookingReference,
+        appointmentId: targetBooking.appointmentId,
+        service: targetBooking.serviceName,
+        date: targetBooking.date,
+        time: targetBooking.time
+      });
+      
+    } else {
+      // FALLBACK: If no booking reference provided, require explicit date/time or error
+      if (!current_date || !current_time) {
+        return { 
+          error: "Please specify which booking to update by providing either a booking reference (use list_current_bookings to see them) or the current date and time of the appointment." 
+        };
+      }
+      
+      // Try to find by date/time as fallback
+      const bookings = session.bookings || [];
+      targetBooking = bookings.find(b => 
+        b.date === current_date && 
+        b.time === current_time && 
+        b.appointmentId &&
+        !b.updatedTo
+      );
+      
+      if (!targetBooking) {
+        console.error(`❌ No booking found for ${current_date} at ${current_time}`);
+        return { 
+          error: `No confirmed booking found for ${current_date} at ${current_time}. Please use list_current_bookings to see available bookings.` 
+        };
+      }
+      
+      console.log("🎯 Found target booking by date/time:", {
+        reference: targetBooking.bookingReference,
+        appointmentId: targetBooking.appointmentId,
+        service: targetBooking.serviceName,
+        date: targetBooking.date,
+        time: targetBooking.time
+      });
     }
 
-    // If we still don't have current booking details, try to look them up from the database
-    if (!currentDateToUse || !currentTimeToUse) {
-      console.log("🔍 Current booking details missing, attempting database lookup...");
-      
-      try {
-        // Call the internal API to find existing bookings for this customer
-        const lookupResponse = await fetch(
-          `${config.nextjs.siteUrl}/api/voice/lookup-customer-bookings`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-internal-secret": config.nextjs.internalApiSecret,
-            },
-            body: JSON.stringify({
-              business_id: business.id,
-              customer_name: customerNameToUse,
-              caller_phone: session?.callerPhone
-            }),
-          }
-        );
+    // Use the target booking details for the update
+    const currentDateToUse = targetBooking.date;
+    const currentTimeToUse = targetBooking.time;
+    const customerNameToUse = customer_name || targetBooking.customerName;
 
-        if (lookupResponse.ok) {
-          const lookupResult = await lookupResponse.json();
-          if (lookupResult.bookings && lookupResult.bookings.length > 0) {
-            // Use the most recent future booking
-            const futureBookings = lookupResult.bookings.filter(b => {
-              const bookingDate = new Date(b.appointment_date + 'T' + b.start_time);
-              return bookingDate > new Date();
-            });
-            
-            if (futureBookings.length > 0) {
-              const mostRecentBooking = futureBookings[0]; // API should return them sorted
-              currentDateToUse = mostRecentBooking.appointment_date;
-              currentTimeToUse = mostRecentBooking.start_time;
-              console.log("✅ Found existing booking from database:", {
-                date: currentDateToUse,
-                time: currentTimeToUse,
-                service: mostRecentBooking.service_name
-              });
-            }
-          }
-        } else {
-          console.log("⚠️ Could not lookup existing bookings:", lookupResponse.status);
-        }
-      } catch (lookupError) {
-        console.error("❌ Error looking up existing bookings:", lookupError);
-      }
+    // If we still don't have current booking details, something went wrong
+    if (!currentDateToUse || !currentTimeToUse) {
+      console.log("❌ No target booking found - cannot update without booking reference");
+      return {
+        success: false,
+        message: "Could not identify which booking to update. Please specify which booking you'd like to change.",
+        error: "NO_TARGET_BOOKING"
+      };
     }
 
     console.log("🔄 Using customer info:", {
@@ -1478,11 +1541,20 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     const requestBody = {
       business_id: business.id,
       customer_name: customerNameToUse,
-      current_date: currentDateToUse,
-      current_time: currentTimeToUse,
       caller_phone: callerPhone,
       sessionId: callSid, // Pass session ID for filler phrase generation
     };
+
+    // For existing bookings, use appointment_id for precise identification
+    // For new bookings created in this session, use date/time
+    if (targetBooking.type === 'existing' && targetBooking.originalBookingId) {
+      requestBody.appointment_id = targetBooking.originalBookingId;
+      console.log(`🎯 Using appointment_id for existing booking: ${targetBooking.originalBookingId}`);
+    } else {
+      requestBody.current_date = currentDateToUse;
+      requestBody.current_time = currentTimeToUse;
+      console.log(`📅 Using date/time for session booking: ${currentDateToUse} at ${currentTimeToUse}`);
+    }
 
     // Update session with new booking details if provided
     if (callSid && (new_date || new_time || new_service_id)) {

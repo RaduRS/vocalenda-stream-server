@@ -326,8 +326,23 @@ EXAMPLE SEQUENCE:
 - REMEMBER: A successful booking response means the appointment is CONFIRMED - do not verify or double-check it
 - 🚨 POST-BOOKING CONTEXT AWARENESS: After creating a booking, you KNOW the customer's details from the session - use this information automatically for any updates or changes
 
+📞 BOOKING IDENTIFICATION & SELECTION PROTOCOL:
+🎯 CRITICAL: Every booking now has a unique reference ID (e.g., "BK123456AB") for precise identification
+
+📋 BOOKING REFERENCE SYSTEM:
+- Use list_current_bookings to see all bookings in the current session with their reference IDs
+- Each booking has a unique reference (e.g., "BK123456AB") and position description ("first", "last", "2nd", etc.)
+- When customer says "update my last booking" or "change the first appointment", use the reference ID from the list
+- ALWAYS call list_current_bookings first when customer wants to update/cancel to identify which booking they mean
+
+🔍 CUSTOMER CONTEXT IDENTIFICATION:
+- When customer says "last", "first", "second", "the one at 2 PM", "my haircut appointment":
+  1. Call list_current_bookings to see available bookings with references
+  2. Match customer's description to the correct booking reference
+  3. Use that specific booking_reference in update_booking or cancel_booking
+
 📞 CUSTOMER LOOKUP & BOOKING SELECTION PROTOCOL:
-- Use lookup_customer when customer wants to update/cancel existing appointments and you need to find their bookings
+- Use lookup_customer when customer wants to update/cancel existing appointments from previous calls
 - If lookup_customer returns multiple bookings, guide customer to specify which one: "I found several appointments for you. Which one would you like to update?"
 - Use select_booking when customer has multiple bookings and specifies details like date, time, or service to identify the specific appointment
 - Examples requiring lookup_customer: "I want to cancel my appointment", "Can I reschedule my booking?", "What time is my appointment?"
@@ -336,14 +351,20 @@ EXAMPLE SEQUENCE:
 - Always confirm which specific appointment before making changes when multiple exist
 
 📋 UPDATE_BOOKING REQUIREMENTS:
-- Before calling update_booking, ensure you have: customer_name, current_date, current_time
-- If you don't have these details, call lookup_customer first to get this information
-- If customer just made a booking in the same call, use the session data (customer name and booking details are stored automatically)
-- EXAMPLE FLOW:
+🚨 CRITICAL: Always include booking_reference parameter when calling update_booking
+- Before calling update_booking, ensure you have: booking_reference, customer_name, current_date, current_time
+- If customer just made bookings in the same call, use list_current_bookings to get the reference ID
+- If updating existing appointments from previous calls, use lookup_customer first to get booking details
+- EXAMPLE FLOW FOR SAME-CALL UPDATES:
+  1. Customer: "Can I change my last appointment to 3 PM tomorrow?"
+  2. AI: [calls list_current_bookings to get booking references]
+  3. AI: [identifies "last" booking and gets its reference ID]
+  4. AI: [calls update_booking with booking_reference and new details]
+- EXAMPLE FLOW FOR EXISTING APPOINTMENTS:
   1. Customer: "Can I change my appointment to 3 PM tomorrow?"
   2. AI: [calls lookup_customer to find existing bookings]
-  3. AI: [calls update_booking with complete parameters]
-- Always provide current booking details along with new requested changes
+  3. AI: [calls update_booking with complete parameters including booking_reference]
+- NEVER call update_booking without a booking_reference - it will fail
 
 Be friendly and helpful. Provide immediate responses about availability without making customers wait. Never guess availability. Never mention technical details about calendar systems.
 
@@ -525,10 +546,15 @@ export function getAvailableFunctions(currentYear, currentMonth) {
     {
       name: "update_booking",
       description:
-        "Update an existing booking. SAME-CALL: If customer just made a booking in this call, you can call this with just the new details (new_date, new_time, or new_service_id) - the system will automatically use stored session data for customer_name, current_date, and current_time. NEW CALL: Requires exact customer name and current appointment details for security.",
+        "Update an existing booking using its unique reference ID. CRITICAL: Always call list_current_bookings first to get the booking_reference for the specific booking the customer wants to update.",
       parameters: {
         type: "object",
         properties: {
+          booking_reference: {
+            type: "string",
+            description:
+              "REQUIRED: Unique booking reference ID (e.g., 'BK123456AB') obtained from list_current_bookings. This identifies exactly which booking to update.",
+          },
           customer_name: {
             type: "string",
             description:
@@ -559,7 +585,7 @@ export function getAvailableFunctions(currentYear, currentMonth) {
             description: "New service ID if changing service (optional)",
           },
         },
-        required: [],
+        required: ["booking_reference"],
       },
     },
     {
@@ -631,6 +657,16 @@ export function getAvailableFunctions(currentYear, currentMonth) {
               "Service name or partial service name (optional but recommended for identification)",
           },
         },
+        required: [],
+      },
+    },
+    {
+      name: "list_current_bookings",
+      description:
+        "CRITICAL: List all bookings made in the current call session with their unique reference IDs. Use this BEFORE any update/cancel operations to identify which specific booking the customer is referring to when they say 'last', 'first', 'the one at 2 PM', etc.",
+      parameters: {
+        type: "object",
+        properties: {},
         required: [],
       },
     },
