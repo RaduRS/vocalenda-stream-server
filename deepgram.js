@@ -1232,10 +1232,20 @@ async function handleFunctionCallRequestMessage(
 
   console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`);
   console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
+  console.log(`[${timestamp}] 🕐 TIMING: Function call request received at ${timestamp}`);
+  console.log(`[${timestamp}] 📊 FUNCTION COUNT: ${deepgramData.functions?.length || 0} functions in request`);
   console.log(
     `[${timestamp}] 📋 Functions:`,
     JSON.stringify(deepgramData.functions, null, 2)
   );
+  
+  // Log each function individually for better tracking
+  deepgramData.functions?.forEach((func, index) => {
+    console.log(`[${timestamp}] 🔍 FUNCTION ${index + 1}:`);
+    console.log(`[${timestamp}]   - Name: ${func.name}`);
+    console.log(`[${timestamp}]   - ID: ${func.id}`);
+    console.log(`[${timestamp}]   - Arguments: ${func.arguments}`);
+  });
 
   // Clear expectation since function call happened
   state.setExpectingFunctionCall(false);
@@ -1255,7 +1265,10 @@ async function handleFunctionCallRequestMessage(
 
   // Process each function in the request
   for (const func of deepgramData.functions) {
-    console.log(`[${timestamp}] 🔧 Processing function:`, func.name);
+    const funcTimestamp = new Date().toISOString();
+    console.log(`[${funcTimestamp}] 🔧 Processing function:`, func.name);
+    console.log(`[${funcTimestamp}] 🆔 Function ID:`, func.id);
+    console.log(`[${funcTimestamp}] 📝 Function arguments:`, func.arguments);
 
     // Create the function call data in the expected format
     const functionCallData = {
@@ -1264,10 +1277,13 @@ async function handleFunctionCallRequestMessage(
       parameters: JSON.parse(func.arguments),
     };
 
+    console.log(`[${funcTimestamp}] 📦 Created function call data:`, JSON.stringify(functionCallData, null, 2));
+
     if (deepgramWs && businessConfig) {
       console.log(
-        `[${timestamp}] 🔧 CALLING: handleFunctionCall for ${func.name}...`
+        `[${funcTimestamp}] 🔧 CALLING: handleFunctionCall for ${func.name} with ID ${func.id}...`
       );
+      const startTime = Date.now();
       await handleFunctionCall(
         deepgramWs,
         functionCallData,
@@ -1275,15 +1291,16 @@ async function handleFunctionCallRequestMessage(
         context.callSid,
         context.callerPhone
       );
+      const endTime = Date.now();
       console.log(
-        `[${timestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name}`
+        `[${funcTimestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name} with ID ${func.id} (took ${endTime - startTime}ms)`
       );
     } else {
       console.error(
-        `[${timestamp}] ❌ CANNOT handle function call - missing dependencies`
+        `[${funcTimestamp}] ❌ CANNOT handle function call - missing dependencies`
       );
-      console.log(`[${timestamp}]    - deepgramWs:`, !!deepgramWs);
-      console.log(`[${timestamp}]    - businessConfig:`, !!businessConfig);
+      console.log(`[${funcTimestamp}]    - deepgramWs:`, !!deepgramWs);
+      console.log(`[${funcTimestamp}]    - businessConfig:`, !!businessConfig);
     }
   }
 

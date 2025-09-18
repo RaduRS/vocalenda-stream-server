@@ -200,6 +200,11 @@ export async function handleFunctionCall(
 
     // Check for duplicate create_booking requests
     if (function_name === "create_booking" && function_call_id) {
+      console.log(`🔍 DEDUP CHECK: Checking function call ID ${function_call_id}`);
+      console.log(`🔍 DEDUP CHECK: Current processed calls:`, Array.from(processedFunctionCalls));
+      console.log(`🔍 DEDUP CHECK: Function parameters:`, JSON.stringify(params, null, 2));
+      console.log(`🔍 DEDUP CHECK: Timestamp:`, new Date().toISOString());
+      
       if (processedFunctionCalls.has(function_call_id)) {
         console.log(
           `🚫 DUPLICATE BOOKING REQUEST DETECTED: ${function_call_id}`
@@ -216,6 +221,7 @@ export async function handleFunctionCall(
       console.log(
         `✅ TRACKING: Added function call ID ${function_call_id} to processed set`
       );
+      console.log(`✅ TRACKING: Updated processed calls:`, Array.from(processedFunctionCalls));
     }
 
     let result;
