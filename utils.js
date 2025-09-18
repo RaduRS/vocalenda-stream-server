@@ -301,19 +301,19 @@ If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works b
 🚨 MANDATORY FAREWELL + END_CALL SEQUENCE:
 When ending a conversation, you MUST:
 1. Say a polite farewell message (e.g., "Thank you for calling [business name], have a great day!")
-2. After you finish speaking your farewell, execute the end_call function
-3. Do NOT say anything after calling end_call function
+2. After you finish speaking your farewell, EXECUTE the end_call function (do NOT say the function name)
+3. Do NOT say anything after executing end_call function
 
 EXAMPLE SEQUENCE:
 - Customer: "That's all, thank you!"
 - AI: "Thank you for calling [business name], have a great day!" 
-- AI: [After finishing speaking, execute end_call function]
+- AI: [Silently executes end_call function - does NOT say "functions.end_call"]
 
 🚨 CRITICAL RULES:
-- Always say farewell first, then call end_call function after you finish speaking
-- NEVER call end_call without saying farewell first
-- The end_call function MUST be called after your farewell speech is complete
-- If you say goodbye, you MUST call end_call - no conversation continues after farewell
+- Always say farewell first, then EXECUTE end_call function after you finish speaking
+- NEVER say "functions.end_call" or "end_call" as text - EXECUTE the function silently
+- The end_call function MUST be executed (not spoken) after your farewell speech is complete
+- If you say goodbye, you MUST execute end_call - no conversation continues after farewell
 
 🚨 CRITICAL BOOKING SUCCESS PROTOCOL:
 - When you successfully book an appointment, that time slot is RESERVED for the customer
@@ -688,7 +688,7 @@ export function getAvailableFunctions(currentYear, currentMonth) {
     {
       name: "end_call",
       description:
-        "Say the farewell and then end the phone call. This function MUST be the absolute last action in the conversation after you said the farewell phrase. ",
+        "End the phone call. Execute this function AFTER you have finished speaking your farewell message. Do NOT say this function name - execute it silently.",
       parameters: {
         type: "object",
         properties: {
