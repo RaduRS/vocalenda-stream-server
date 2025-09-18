@@ -2260,10 +2260,11 @@ export async function farewellAndEndCall(callSid, params, businessConfig = null,
 
     // Send farewell message to AI
     if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+      const businessName = businessConfig?.business?.name || "our business";
       deepgramWs.send(
         JSON.stringify({
           type: "InjectAgentMessage",
-          content: "Thank you for calling [business name], goodbye!",
+          content: `Thank you for calling ${businessName}, goodbye!`,
         })
       );
       console.log(`[${timestamp}] 💬 Farewell message sent to AI`);
