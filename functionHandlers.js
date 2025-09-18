@@ -209,19 +209,131 @@ export async function handleFunctionCall(
     }
 
     // --- START: CRITICAL VALIDATION FOR BOOKING-RELATED FUNCTION CALLS ---
-    // Validate booking requests BEFORE making any API calls
+    // 🚨 ALWAYS validate booking requests BEFORE making any API calls
     if (function_name === "create_booking" || function_name === "get_available_slots") {
       const { date, time } = params;
       
-      if (date && time) {
+      // CRITICAL: We need a date to proceed with any booking-related function
+      if (!date) {
+        console.error(`❌ FUNCTION_CALL_BLOCKED: No date provided for ${function_name}`);
+        const errorResponse = {
+          type: "FunctionCallResponse",
+          id: function_call_id,
+          name: function_name,
+          content: JSON.stringify({ 
+            error: "Please specify a date for your appointment."
+          }),
+        };
+        
+        try {
+          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+            deepgramWs.send(JSON.stringify(errorResponse));
+            console.log("✅ Validation error response sent to Deepgram");
+          }
+        } catch (sendError) {
+          console.error("❌ Error sending validation response:", sendError);
+        }
+        return;
+      }
+
+      // Get current time and business info for validation
+      const businessInfo = businessConfig.business;
+      const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
+      const now = new Date();
+      const ukNow = new Date(now.toLocaleString("en-US", { timeZone: validationTimezone }));
+      const currentTime = ukNow.toTimeString().slice(0, 5); // HH:MM format
+      const currentDate = ukNow.toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      console.log(`🕐 Current UK time: ${currentTime}, Current date: ${currentDate}`);
+      console.log(`📅 Validating request for date: ${date}, time: ${time || 'not specified'}`);
+
+      // Parse the requested date
+      let requestedDate;
+      try {
+        requestedDate = parseISODate(date);
+      } catch (error) {
+        console.error(`❌ FUNCTION_CALL_BLOCKED: Invalid date format: ${date}`);
+        const errorResponse = {
+          type: "FunctionCallResponse",
+          id: function_call_id,
+          name: function_name,
+          content: JSON.stringify({ 
+            error: "Please provide a valid date format (e.g., 2024-01-15 or today)."
+          }),
+        };
+        
+        try {
+          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+            deepgramWs.send(JSON.stringify(errorResponse));
+            console.log("✅ Validation error response sent to Deepgram");
+          }
+        } catch (sendError) {
+          console.error("❌ Error sending validation response:", sendError);
+        }
+        return;
+      }
+
+      // Check if the requested date is in the past
+      const requestedDateStr = requestedDate.toISOString().split('T')[0];
+      if (requestedDateStr < currentDate) {
+        console.error(`❌ FUNCTION_CALL_BLOCKED: Date ${date} is in the past`);
+        const errorResponse = {
+          type: "FunctionCallResponse",
+          id: function_call_id,
+          name: function_name,
+          content: JSON.stringify({ 
+            error: `Sorry, I cannot book appointments for past dates. Today is ${currentDate}. Please choose today or a future date.`
+          }),
+        };
+        
+        try {
+          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+            deepgramWs.send(JSON.stringify(errorResponse));
+            console.log("✅ Validation error response sent to Deepgram");
+          }
+        } catch (sendError) {
+          console.error("❌ Error sending validation response:", sendError);
+        }
+        return;
+      }
+
+      // Check if the requested date is a business day
+      const businessHoursCheck = isWithinBusinessHours(
+        date,
+        "09:00", // Use a default time just to check if the day is open
+        businessConfig
+      );
+      
+      if (!businessHoursCheck.isWithin && businessHoursCheck.message.includes("closed")) {
+        console.error(`❌ FUNCTION_CALL_BLOCKED: Business closed on ${date}`);
+        const errorResponse = {
+          type: "FunctionCallResponse",
+          id: function_call_id,
+          name: function_name,
+          content: JSON.stringify({ 
+            error: `Sorry, we are closed on that day. ${businessHoursCheck.message}`
+          }),
+        };
+        
+        try {
+          if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+            deepgramWs.send(JSON.stringify(errorResponse));
+            console.log("✅ Validation error response sent to Deepgram");
+          }
+        } catch (sendError) {
+          console.error("❌ Error sending validation response:", sendError);
+        }
+        return;
+      }
+
+      // If we have both date and time, do additional time validation
+      if (time) {
         // Convert 12-hour format to 24-hour if needed for validation
         const validationTime = time.includes("AM") || time.includes("PM") || time.includes("am") || time.includes("pm")
           ? convert12to24Hour(time)
           : time;
 
-        // Check if the booking time is in the past
-        const businessInfo = businessConfig.business;
-        const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
+        // Check if the booking time is in the past (for today's bookings)
         const pastCheck = isBookingInPast(date, validationTime, validationTimezone);
         
         if (pastCheck.isPast) {
@@ -231,7 +343,7 @@ export async function handleFunctionCall(
             id: function_call_id,
             name: function_name,
             content: JSON.stringify({ 
-              error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`
+              error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future time.`
             }),
           };
           
@@ -247,20 +359,20 @@ export async function handleFunctionCall(
         }
 
         // Check if the requested time is within business hours
-        const businessHoursCheck = isWithinBusinessHours(
+        const timeBusinessHoursCheck = isWithinBusinessHours(
           date,
           validationTime,
           businessConfig
         );
         
-        if (!businessHoursCheck.isWithin) {
-          console.error(`❌ FUNCTION_CALL_BLOCKED: ${businessHoursCheck.message}`);
+        if (!timeBusinessHoursCheck.isWithin) {
+          console.error(`❌ FUNCTION_CALL_BLOCKED: ${timeBusinessHoursCheck.message}`);
           const errorResponse = {
             type: "FunctionCallResponse",
             id: function_call_id,
             name: function_name,
             content: JSON.stringify({ 
-              error: `Sorry, I cannot book appointments outside business hours. ${businessHoursCheck.message}`
+              error: `Sorry, I cannot book appointments outside business hours. ${timeBusinessHoursCheck.message}`
             }),
           };
           
@@ -274,9 +386,9 @@ export async function handleFunctionCall(
           }
           return;
         }
-        
-        console.log(`✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`);
       }
+      
+      console.log(`✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`);
     }
     // --- END: CRITICAL VALIDATION ---
 
