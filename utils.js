@@ -24,7 +24,7 @@ export function getTodayDate() {
  * @param {Object} callContext - Call context information
  * @returns {string} Generated system prompt
  */
-export function generateSystemPrompt(businessConfig, callContext) {
+export function generateSystemPrompt(businessConfig) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
