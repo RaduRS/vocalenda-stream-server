@@ -2058,9 +2058,10 @@ export async function endCall(callSid, params, businessConfig = null) {
 
     return {
       success: true,
-      message: `Call ended: ${reason}`,
+      call_ended: true,
       callSid: callSid,
       status: call.status,
+      reason: reason
     };
   } catch (error) {
     console.error("❌ Error ending call:", error);
