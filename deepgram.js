@@ -1071,11 +1071,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
 
     // Add conversation text to transcript - both ConversationText and History are needed
     // as they may contain different messages or arrive at different times
-    if (content && content.trim()) {
-      const speaker = deepgramData.role === "user" ? "User" : "AI";
-      console.log(`[${timestamp}] 🔍 ConversationText role: '${deepgramData.role}' -> Speaker: '${speaker}'`);
-      connectionState.addTranscriptEntry(speaker, content, timestamp);
-    }
   } else if (deepgramData.type === "FunctionResponse") {
     console.log(`[${timestamp}] 📤 FUNCTION_RESPONSE: Sent back to agent`);
     console.log(
