@@ -738,11 +738,7 @@ export async function handleDeepgramMessage(
 
     // Handle JSON messages
     if (isJsonMessage) {
-      console.log(
-        "📨 Received Deepgram JSON message:",
-        messageStr.substring(0, 200) + "..."
-      );
-      console.log("Message string:", messageStr);
+      console.log("📨 Message string:", messageStr);
 
       try {
         const deepgramData = JSON.parse(messageStr);
@@ -847,6 +843,13 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       );
     }
 
+    // Clear local audio buffer to stop AI from continuing to speak
+    connectionState.audioManager.resetBuffer();
+    connectionState.audioManager.setStreamingState(false);
+    console.log(
+      `[${timestamp}] 🔄 BARGE_IN: Cleared local audio buffer and stopped streaming`
+    );
+
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
     console.log(
@@ -868,6 +871,13 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         `[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`
       );
     }
+
+    // Clear local audio buffer to stop AI from continuing to speak
+    connectionState.audioManager.resetBuffer();
+    connectionState.audioManager.setStreamingState(false);
+    console.log(
+      `[${timestamp}] 🔄 BARGE_IN: Cleared local audio buffer and stopped streaming`
+    );
 
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
