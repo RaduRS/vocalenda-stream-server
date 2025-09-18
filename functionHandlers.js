@@ -548,6 +548,10 @@ export async function handleFunctionCall(
         result = await endCall(callSid, params, businessConfig);
         break;
 
+      case "farewell_and_end_call":
+        result = await farewellAndEndCall(callSid, params, businessConfig, deepgramWs);
+        break;
+
       case "get_current_time":
         try {
           console.log("🕐 Getting current time");
