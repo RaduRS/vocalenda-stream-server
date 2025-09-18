@@ -34,6 +34,14 @@ export function getCurrentUKDateTime() {
 }
 
 /**
+ * Get a short timestamp for logging (HH:MM:SS only)
+ */
+export function getShortTimestamp() {
+  const now = getCurrentUKDateTime();
+  return format(now, "HH:mm:ss");
+}
+
+/**
  * Get the current date in UK timezone (time set to 00:00:00)
  */
 export function getCurrentUKDate() {

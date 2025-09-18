@@ -20,21 +20,21 @@ export async function loadBusinessConfig(businessId) {
     }
 
     // Load business configuration
-    const { data: config, error: configError } = await supabase
+    const { data: config } = await supabase
       .from("business_config")
       .select("*")
       .eq("business_id", businessId)
       .single();
 
     // Load active services
-    const { data: services, error: servicesError } = await supabase
+    const { data: services } = await supabase
       .from("services")
       .select("*")
       .eq("business_id", businessId)
       .eq("is_active", true);
 
     // Load active staff members
-    const { data: staffMembers, error: staffError } = await supabase
+    const { data: staffMembers } = await supabase
       .from("staff_members")
       .select("*")
       .eq("business_id", businessId)

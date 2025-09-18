@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
-import { getCurrentUKDateTime } from "./dateUtils.js";
+import { getCurrentUKDateTime, getShortTimestamp } from "./dateUtils.js";
 import { validateConfig } from "./config.js";
-import { handleFunctionCall, endCall } from "./functionHandlers.js";
+import { handleFunctionCall } from "./functionHandlers.js";
 import { db } from "./database.js";
 import { ConnectionState } from "./managers/ConnectionState.js";
 
@@ -40,7 +40,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
     // Wait for Welcome message before sending configuration (like official example)
     const initMessageHandler = async (message) => {
       try {
-        const timestamp = new Date().toISOString();
+        const timestamp = getShortTimestamp();
 
         // Check if this is binary data (audio) vs JSON message
         if (message instanceof Buffer && message.length > 0) {
@@ -71,6 +71,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
             messageStr.includes("\x00") ||
             messageStr.includes("\xFF") ||
             messageStr.includes("�") ||
+            // eslint-disable-next-line no-control-regex
             /[\x00-\x08\x0E-\x1F\x7F-\xFF]/.test(messageStr)
           ) {
             // Contains binary characters, ignore it in initialization
@@ -94,10 +95,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
           );
 
           // Generate system prompt
-          const systemPrompt = generateSystemPrompt(
-            businessConfig,
-            callContext
-          );
+          const systemPrompt = generateSystemPrompt(businessConfig);
 
           console.log(
             `[${timestamp}] 📝 PROMPT: Generated length:`,
@@ -119,9 +117,14 @@ export async function initializeDeepgram(businessConfig, callContext) {
           // Get dynamic date variables for function descriptions
           const todayUK = getCurrentUKDateTime();
           const currentYear = todayUK.getFullYear();
-          const currentMonth = todayUK.toLocaleString('en-GB', { month: 'long' });
-          
-          const functionsArray = getAvailableFunctions(currentYear, currentMonth);
+          const currentMonth = todayUK.toLocaleString("en-GB", {
+            month: "long",
+          });
+
+          const functionsArray = getAvailableFunctions(
+            currentYear,
+            currentMonth
+          );
           console.log(
             `[${timestamp}] 🔧 FUNCTIONS: Available count:`,
             Array.isArray(functionsArray) ? functionsArray.length : 0
@@ -238,7 +241,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
             ) {
               deepgramWs.send(JSON.stringify({ type: "KeepAlive" }));
               console.log(
-                `[${new Date().toISOString()}] 💓 KEEPALIVE: Sent to Deepgram`
+                `[${getShortTimestamp()}] 💓 KEEPALIVE: Sent to Deepgram`
               );
             }
           }, 4000); // Send every 4 seconds as recommended by Deepgram (3-5 second range)
@@ -247,14 +250,14 @@ export async function initializeDeepgram(businessConfig, callContext) {
           deepgramWs.pauseKeepAlive = () => {
             processingFunctionCall = true;
             console.log(
-              `[${new Date().toISOString()}] ⏸️ KEEPALIVE: Paused for function processing`
+              `[${getShortTimestamp()}] ⏸️ KEEPALIVE: Paused for function processing`
             );
           };
 
           deepgramWs.resumeKeepAlive = () => {
             processingFunctionCall = false;
             console.log(
-              `[${new Date().toISOString()}] ▶️ KEEPALIVE: Resumed after function processing`
+              `[${getShortTimestamp()}] ▶️ KEEPALIVE: Resumed after function processing`
             );
           };
 
@@ -262,7 +265,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
           deepgramWs.setTwilioConnectionActive = (active) => {
             hasActiveTwilioConnection = active;
             console.log(
-              `[${new Date().toISOString()}] 🔗 TWILIO_CONNECTION: ${
+              `[${getShortTimestamp()}] 🔗 TWILIO_CONNECTION: ${
                 active ? "Active" : "Inactive"
               } - KeepAlive ${active ? "enabled" : "disabled"}`
             );
@@ -320,13 +323,13 @@ export async function initializeDeepgram(businessConfig, callContext) {
           // Ignore ConversationText, History, UserStartedSpeaking, and TtsAudio during initialization
           // These will be processed by the main message handler after initialization completes
         }
-      } catch (error) {
-        const timestamp = new Date().toISOString();
+      } catch (_error) {
+        const timestamp = getShortTimestamp();
         console.error(
           `[${timestamp}] ❌ INIT_ERROR: Processing message:`,
-          error
+          _error
         );
-        reject(error);
+        reject(_error);
       }
     };
 
@@ -366,7 +369,7 @@ export function cleanupAudioSystem(deepgramWs) {
     console.warn("⚠️ No connection state found for audio cleanup");
     return;
   }
-  
+
   // Don't cleanup the persistent pacer to maintain continuous audio flow
   // Just reset the audio buffer and streaming state
   const audioManager = connectionState.audioManager;
@@ -444,56 +447,49 @@ export function initializeTranscriptTracking(callSid) {
   console.log(`📝 Initialized transcript tracking for call: ${callSid}`);
 }
 
-/**
- * Add a transcript entry to the conversation
- */
-function addTranscriptEntry(speaker, text, timestamp) {
-  if (text && text.trim()) {
-    conversationTranscript.push({
-      speaker,
-      text: text.trim(),
-      timestamp,
-    });
-    console.log(`📝 Added transcript: [${speaker}] ${text.trim()}`);
-  }
-}
+
 
 /**
  * Save the accumulated transcript to the database
  * @param {string} callSid - The call SID to save transcript for
  * @param {Object} deepgramWs - Optional Deepgram WebSocket with connectionState
  */
-export async function saveConversationTranscript(callSid = null, deepgramWs = null) {
+export async function saveConversationTranscript(
+  callSid = null,
+  deepgramWs = null
+) {
   // Try to use connection-specific transcript first
   if (deepgramWs?.connectionState?.transcriptManager) {
     const transcriptManager = deepgramWs.connectionState.transcriptManager;
     const transcript = transcriptManager.getTranscript();
     const targetCallSid = callSid || transcriptManager.getCallSid();
-    
+
     if (targetCallSid && transcript.length > 0) {
       try {
         const transcriptText = transcript
-          .map((entry) => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+          .map(
+            (entry) => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`
+          )
           .join("\n");
 
         await db.updateCallTranscript(targetCallSid, transcriptText);
         console.log(
           `✅ Saved transcript for call ${targetCallSid} (${transcript.length} entries)`
         );
-        
+
         // Clear the transcript after saving
         transcriptManager.clear();
         return;
-      } catch (error) {
+      } catch (_error) {
         console.error(
           `❌ Failed to save transcript for call ${targetCallSid}:`,
-          error
+          _error
         );
         return;
       }
     }
   }
-  
+
   // Fallback to legacy global transcript (for backward compatibility)
   const targetCallSid = callSid || currentCallSid;
   if (targetCallSid && conversationTranscript.length > 0) {
@@ -525,7 +521,7 @@ export async function saveConversationTranscript(callSid = null, deepgramWs = nu
  */
 function initializePersistentPacer(connectionState) {
   const audioManager = connectionState.audioManager;
-  
+
   if (audioManager.pacer) {
     clearInterval(audioManager.pacer);
   }
@@ -548,7 +544,9 @@ function initializePersistentPacer(connectionState) {
     if (audioManager.audioBuffer.length >= audioManager.FRAME_SIZE) {
       // Send real audio if available
       const frame = audioManager.audioBuffer.slice(0, audioManager.FRAME_SIZE);
-      audioManager.audioBuffer = audioManager.audioBuffer.slice(audioManager.FRAME_SIZE);
+      audioManager.audioBuffer = audioManager.audioBuffer.slice(
+        audioManager.FRAME_SIZE
+      );
       payload = frame.toString("base64");
     } else {
       // Send silence to keep the stream alive
@@ -619,7 +617,7 @@ export async function handleDeepgramMessage(
 
   try {
     // Add timestamp to all logs
-    const timestamp = new Date().toISOString();
+    const timestamp = getShortTimestamp();
 
     if (!Buffer.isBuffer(deepgramMessage)) {
       console.log("🔍 NON-BUFFER MESSAGE:", deepgramMessage.toString());
@@ -642,7 +640,7 @@ export async function handleDeepgramMessage(
           JSON.parse(messageStr);
           isJsonMessage = true;
         }
-      } catch (error) {
+      } catch {
         // Not valid JSON, treat as binary audio data
         isJsonMessage = false;
       }
@@ -685,7 +683,7 @@ export async function handleDeepgramMessage(
       // Feed audio buffer instead of sending directly (persistent pacer handles sending)
       try {
         const audioManager = connectionState.audioManager;
-        
+
         // Mark that we're actively streaming audio
         if (!audioManager.isStreamingAudio) {
           audioManager.setStreamingState(true);
@@ -749,18 +747,9 @@ export async function handleDeepgramMessage(
       try {
         const deepgramData = JSON.parse(messageStr);
 
-        // This is a JSON message - log it fully with timestamp
-        console.log(
-          `[${timestamp}] 📨 JSON MESSAGE FROM DEEPGRAM:`,
-          messageStr
-        );
-        console.log(`[${timestamp}] === PARSED DEEPGRAM JSON ===`);
-        console.log(JSON.stringify(deepgramData, null, 2));
-        console.log(`[${timestamp}] === END PARSED JSON ===`);
-
         // Log the event type prominently
         console.log(
-          `[${timestamp}] 🎯 DEEPGRAM EVENT TYPE: ${deepgramData.type}`
+          `[${timestamp}] 🎯 DEEPGRAM: ${deepgramData.type}`
         );
 
         // Handle different types of Deepgram messages
@@ -805,7 +794,7 @@ export async function handleDeepgramMessage(
  * @param {Object} context - Context object
  */
 async function handleDeepgramMessageType(deepgramData, timestamp, context) {
-  const { twilioWs, deepgramWs, businessConfig, streamSid, state } = context;
+  const { twilioWs, deepgramWs, streamSid, state } = context;
   const connectionState = deepgramWs.connectionState;
 
   if (deepgramData.type === "SettingsApplied") {
@@ -845,17 +834,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
   } else if (deepgramData.type === "UserStartedSpeaking") {
     console.log(`[${timestamp}] 🎤 USER_STARTED_SPEAKING: User began speaking`);
-    
+
     // Handle barge-in: Clear Twilio audio queue when user starts speaking
     if (twilioWs && streamSid && twilioWs.readyState === WebSocket.OPEN) {
       const clearMessage = {
         event: "clear",
-        streamSid: streamSid
+        streamSid: streamSid,
       };
       twilioWs.send(JSON.stringify(clearMessage));
-      console.log(`[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`);
+      console.log(
+        `[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`
+      );
     }
-    
+
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
     console.log(
@@ -865,17 +856,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(
       `[${timestamp}] 🎤 SPEECH_STARTED: User began speaking (STT event)`
     );
-    
+
     // Handle barge-in: Clear Twilio audio queue when user starts speaking
     if (twilioWs && streamSid && twilioWs.readyState === WebSocket.OPEN) {
       const clearMessage = {
         event: "clear",
-        streamSid: streamSid
+        streamSid: streamSid,
       };
       twilioWs.send(JSON.stringify(clearMessage));
-      console.log(`[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`);
+      console.log(
+        `[${timestamp}] 🔄 BARGE_IN: Cleared Twilio audio queue for user speech`
+      );
     }
-    
+
     // Reset silence tracking when user starts speaking using connection state
     connectionState.silenceManager.resetTimer();
     console.log(
@@ -953,7 +946,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
           console.log(
             `[${timestamp}] 🔄 Resetting audio stream state due to empty audio`
           );
-          isStreamingAudio = false;
+          connectionState.audioManager.isStreamingAudio = false;
         }, 500); // Shorter timeout for empty audio
       }
     }
@@ -972,18 +965,21 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     }
 
     // Start silence tracking after AI finishes speaking using connection state
-    connectionState.silenceManager.startTracking(timestamp, context, deepgramWs);
+    connectionState.silenceManager.startTracking(
+      timestamp,
+      context,
+      deepgramWs
+    );
 
-    // Capture callSid and businessConfig for use in timeout closure
-    const currentCallSid = context.callSid;
-    const currentBusinessConfig = context.businessConfig;
+
 
     // Set up silence detection timeouts using connection state
     const scheduleNextSilenceCheck = () => {
       connectionState.silenceManager.setSilenceTimeout(() => {
         if (!connectionState.silenceManager.silenceStartTime) return; // User started speaking or timer paused, abort
 
-        const silenceDuration = connectionState.silenceManager.getSilenceDuration();
+        const silenceDuration =
+          connectionState.silenceManager.getSilenceDuration();
         console.log(
           `[${timestamp}] 🔇 SILENCE_CHECK: ${silenceDuration}ms of silence`
         );
@@ -1029,9 +1025,12 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     console.log(
       `[${timestamp}] ⏰ CRITICAL: Function calls should happen during thinking!`
     );
-    
+
     // Pause silence timer while agent is thinking using connection state
-    connectionState.silenceManager.pauseTimer("Agent is thinking/processing", timestamp);
+    connectionState.silenceManager.pauseTimer(
+      "Agent is thinking/processing",
+      timestamp
+    );
   } else if (deepgramData.type === "TtsStart") {
     console.log(`[${timestamp}] 🎙️ TTS_START: AI generating speech...`);
   } else if (deepgramData.type === "TtsText") {
@@ -1039,7 +1038,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
 
     // Note: Transcript entry handled by History/ConversationText events to avoid duplicates
     // Only keeping the availability check logic here
-    
+
     // Check if AI is mentioning availability without calling function
     if (
       deepgramData.text &&
@@ -1079,14 +1078,19 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     );
   } else if (deepgramData.type === "History") {
     console.log(`[${timestamp}] 📜 HISTORY: Message logged`);
-    
+
     // Add message to transcript using connection state with proper role detection
     if (deepgramData.content && deepgramData.content.trim()) {
       // Deepgram sends role as 'user' or 'assistant' according to their docs
       const speaker = deepgramData.role === "user" ? "User" : "AI";
-      console.log(`[${timestamp}] 🔍 History role: '${deepgramData.role}' -> Speaker: '${speaker}'`);
-      connectionState.addTranscriptEntry(speaker, deepgramData.content, timestamp);
-      console.log(`[${timestamp}] 📝 Added transcript: [${speaker}] ${deepgramData.content}`);
+      console.log(
+        `[${timestamp}] 🔍 History role: '${deepgramData.role}' -> Speaker: '${speaker}'`
+      );
+      connectionState.addTranscriptEntry(
+        speaker,
+        deepgramData.content,
+        timestamp
+      );
     }
   } else {
     console.log(`[${timestamp}] ❓ UNKNOWN_EVENT_TYPE: ${deepgramData.type}`);
@@ -1227,13 +1231,19 @@ async function handleFunctionCallRequestMessage(
 
   console.log(`[${timestamp}] 🚨🚨 FUNCTION_CALL_REQUEST DETECTED! 🚨🚨`);
   console.log(`[${timestamp}] ✅ SUCCESS: AI requesting function calls!`);
-  console.log(`[${timestamp}] 🕐 TIMING: Function call request received at ${timestamp}`);
-  console.log(`[${timestamp}] 📊 FUNCTION COUNT: ${deepgramData.functions?.length || 0} functions in request`);
+  console.log(
+    `[${timestamp}] 🕐 TIMING: Function call request received at ${timestamp}`
+  );
+  console.log(
+    `[${timestamp}] 📊 FUNCTION COUNT: ${
+      deepgramData.functions?.length || 0
+    } functions in request`
+  );
   console.log(
     `[${timestamp}] 📋 Functions:`,
     JSON.stringify(deepgramData.functions, null, 2)
   );
-  
+
   // Log each function individually for better tracking
   deepgramData.functions?.forEach((func, index) => {
     console.log(`[${timestamp}] 🔍 FUNCTION ${index + 1}:`);
@@ -1251,7 +1261,10 @@ async function handleFunctionCallRequestMessage(
 
   // Pause silence timer during function processing using connection state
   const connectionState = context.deepgramWs.connectionState;
-  connectionState.silenceManager.pauseTimer("Processing function calls", timestamp);
+  connectionState.silenceManager.pauseTimer(
+    "Processing function calls",
+    timestamp
+  );
 
   // Pause KeepAlive during function processing
   if (deepgramWs && deepgramWs.pauseKeepAlive) {
@@ -1260,7 +1273,7 @@ async function handleFunctionCallRequestMessage(
 
   // Process each function in the request
   for (const func of deepgramData.functions) {
-    const funcTimestamp = new Date().toISOString();
+    const funcTimestamp = getShortTimestamp();
     console.log(`[${funcTimestamp}] 🔧 Processing function:`, func.name);
     console.log(`[${funcTimestamp}] 🆔 Function ID:`, func.id);
     console.log(`[${funcTimestamp}] 📝 Function arguments:`, func.arguments);
@@ -1272,7 +1285,10 @@ async function handleFunctionCallRequestMessage(
       parameters: JSON.parse(func.arguments),
     };
 
-    console.log(`[${funcTimestamp}] 📦 Created function call data:`, JSON.stringify(functionCallData, null, 2));
+    console.log(
+      `[${funcTimestamp}] 📦 Created function call data:`,
+      JSON.stringify(functionCallData, null, 2)
+    );
 
     if (deepgramWs && businessConfig) {
       console.log(
@@ -1288,7 +1304,9 @@ async function handleFunctionCallRequestMessage(
       );
       const endTime = Date.now();
       console.log(
-        `[${funcTimestamp}] ✅ COMPLETED: handleFunctionCall for ${func.name} with ID ${func.id} (took ${endTime - startTime}ms)`
+        `[${funcTimestamp}] ✅ COMPLETED: handleFunctionCall for ${
+          func.name
+        } with ID ${func.id} (took ${endTime - startTime}ms)`
       );
     } else {
       console.error(
@@ -1305,7 +1323,10 @@ async function handleFunctionCallRequestMessage(
   }
 
   // Resume silence timer after function processing
-  connectionState.silenceManager.resumeTimer("Function processing completed", timestamp);
+  connectionState.silenceManager.resumeTimer(
+    "Function processing completed",
+    timestamp
+  );
 }
 
 // Utility functions are now imported from utils.js module

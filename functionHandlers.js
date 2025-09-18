@@ -9,6 +9,7 @@ import {
   UK_TIMEZONE,
   formatISODate,
   getDayOfWeekNumber,
+  getShortTimestamp,
 } from "./dateUtils.js";
 import { isWithinBusinessHours } from "./utils.js";
 import { db } from "./database.js";
@@ -172,28 +173,10 @@ export async function handleFunctionCall(
   if (callSid && callerPhone) {
     setCallSession(callSid, { callerPhone });
   }
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🚀 STARTING handleFunctionCall`);
-  console.log(
-    `[${timestamp}] 🔧 Function call received:`,
-    JSON.stringify(functionCallData, null, 2)
-  );
-  console.log(
-    `[${timestamp}] 📋 Function name:`,
-    functionCallData?.function_name
-  );
-  console.log(
-      `[${timestamp}] 📊 Parameters:`,
-      JSON.stringify(functionCallData?.params, null, 2)
-    );
-  console.log(`[${timestamp}] 🏢 Business config exists:`, !!businessConfig);
-  console.log(`[${timestamp}] 🌐 WebSocket state:`, deepgramWs?.readyState);
+  const timestamp = getShortTimestamp();
+  console.log(`[${timestamp}] 🚀 FUNCTION: ${functionCallData?.function_name}`);
 
   try {
-    console.log(
-      "🔧 Function call received:",
-      JSON.stringify(functionCallData, null, 2)
-    );
     const { function_name, function_call_id } = functionCallData;
     // Handle both 'params' and 'parameters' properties
     const params = functionCallData.params || functionCallData.parameters || {};
@@ -203,7 +186,7 @@ export async function handleFunctionCall(
       console.log(`🔍 DEDUP CHECK: Checking function call ID ${function_call_id}`);
       console.log(`🔍 DEDUP CHECK: Current processed calls:`, Array.from(processedFunctionCalls));
       console.log(`🔍 DEDUP CHECK: Function parameters:`, JSON.stringify(params, null, 2));
-      console.log(`🔍 DEDUP CHECK: Timestamp:`, new Date().toISOString());
+      console.log(`🔍 DEDUP CHECK: Timestamp:`, getShortTimestamp());
       
       if (processedFunctionCalls.has(function_call_id)) {
         console.log(
@@ -603,7 +586,7 @@ export async function handleFunctionCall(
     const errorResponse = {
       type: "FunctionCallResponse",
       id: functionCallData.function_call_id,
-      name: function_name,
+      name: functionCallData.function_name,
       content: JSON.stringify({ error: "Function execution failed" }),
     };
 
@@ -618,33 +601,10 @@ export async function handleFunctionCall(
  * @returns {Object} Available slots or error
  */
 export async function getAvailableSlots(businessConfig, params, callSid = null) {
-  const timestamp = new Date().toISOString();
-  console.log(
-    `[${timestamp}] 🚀 STARTING getAvailableSlots with params:`,
-    JSON.stringify(params, null, 2)
-  );
-  console.log(
-    `[${timestamp}] 🏢 Business config:`,
-    businessConfig?.business?.name
-  );
-  console.log(
-    `[${timestamp}] 📋 Services count:`,
-    businessConfig?.services?.length
-  );
-  console.log(
-    `[${timestamp}] 🌐 Site URL:`,
-    config.nextjs?.siteUrl || "Not configured"
-  );
-  console.log(
-    `[${timestamp}] 🔑 Secret exists:`,
-    !!config.nextjs?.internalApiSecret
-  );
+  const timestamp = getShortTimestamp();
+  console.log(`[${timestamp}] 🗓️ GET_SLOTS: ${params.date} service:${params.service_id}`);
 
   try {
-    console.log(
-      "🗓️ Getting available slots for:",
-      JSON.stringify(params, null, 2)
-    );
     const { date, service_id } = params;
     // Business config already defined at the top of the function
 
@@ -731,16 +691,6 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
     // Call the new simplified calendar availability API
     const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${businessConfig.business.id}&serviceId=${serviceId}&date=${date}`;
 
-    console.log(`[${timestamp}] 🌐 About to make API call:`);
-    console.log(`[${timestamp}] 🔗 API URL:`, apiUrl);
-    console.log(
-      `[${timestamp}] 🔑 Secret exists:`,
-      !!config.nextjs?.internalApiSecret
-    );
-    console.log(`[${timestamp}] 🏢 Business ID:`, businessConfig.business.id);
-    console.log(`[${timestamp}] 📋 Service ID:`, serviceId);
-    console.log(`[${timestamp}] 📅 Date:`, date);
-
     const response = await fetch(apiUrl, {
       method: "GET",
       headers: {
@@ -748,17 +698,8 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       },
     });
 
-    console.log(`[${timestamp}] 📡 API Response status:`, response.status);
-    console.log(`[${timestamp}] 📡 API Response ok:`, response.ok);
-
     const result = await response.json();
-    console.log(
-      `[${timestamp}] 📅 Calendar API response:`,
-      JSON.stringify(result, null, 2)
-    );
-    console.log(`[${timestamp}] 📊 Response type:`, typeof result);
-    console.log(`[${timestamp}] 📊 Has slots:`, !!result.slots);
-    console.log(`[${timestamp}] 📊 Slots count:`, result.slots?.length || 0);
+    console.log(`[${timestamp}] 📡 API: ${response.status} - ${result.slots?.length || 0} slots`);
 
     if (!response.ok) {
       console.error("❌ Calendar API error:", result);
@@ -775,7 +716,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       setCallSession(callSid, {
         ...session,
         lastCheckedDate: date,
-        lastCheckedTimestamp: new Date().toISOString()
+        lastCheckedTimestamp: getShortTimestamp()
       });
       console.log(`📅 Stored checked date in session: ${date}`);
     }
@@ -797,14 +738,8 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
  */
 export async function createBooking(businessConfig, params, callSid = null) {
   try {
-    console.log(
-      "🎯 createBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
-    console.log(
-      "📋 Available services:",
-      businessConfig.services.map((s) => ({ id: s.id, name: s.name }))
-    );
+    const timestamp = getShortTimestamp();
+    console.log(`[${timestamp}] 📅 CREATE_BOOKING: ${params.customer_name} - ${params.service_id} on ${params.date} at ${params.time}`);
 
     const { customer_name, service_id, date, time, customer_phone } = params;
 
@@ -898,7 +833,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
     );
 
     // Parse and validate the date and time using UK standards
-    let parsedDate, parsedTime;
+    let parsedDate;
     try {
       parsedDate = parseISODate(date);
       // Convert 12-hour format to 24-hour if needed
@@ -909,7 +844,8 @@ export async function createBooking(businessConfig, params, callSid = null) {
         time.includes("pm")
           ? convert12to24Hour(time)
           : time;
-      parsedTime = parseUKTime(timeIn24h, parsedDate);
+      // Parse time for validation but don't store result as it's not used
+      parseUKTime(timeIn24h, parsedDate);
 
       // Verify the day of the week is correct
       const dayOfWeek = getDayOfWeekName(parsedDate);
@@ -1118,10 +1054,8 @@ export async function createBooking(businessConfig, params, callSid = null) {
  */
 export async function updateBooking(businessConfig, params, callSid = null) {
   try {
-    console.log(
-      "📝 updateBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
+    const timestamp = getShortTimestamp();
+    console.log(`[${timestamp}] 📝 UPDATE_BOOKING: ${params.current_date} ${params.current_time} → ${params.new_date || 'same'} ${params.new_time || 'same'}`);
 
     const {
       customer_name,
@@ -1428,10 +1362,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
  */
 export async function cancelBooking(businessConfig, params, callSid = null) {
   try {
-    console.log(
-      "❌ cancelBooking called with params:",
-      JSON.stringify(params, null, 2)
-    );
+    const timestamp = getShortTimestamp();
+    console.log(`[${timestamp}] ❌ CANCEL_BOOKING: ${params.customer_name} - ${params.date} ${params.time}`);
 
     const { customer_name, date, time, reason } = params;
     const business = businessConfig.business;
@@ -1897,65 +1829,7 @@ export async function transferToHuman(businessConfig, params, callSid) {
   }
 }
 
-/**
- * Send SMS confirmation for appointment booking
- * @param {Object} params - SMS parameters
- * @returns {Promise<void>}
- */
-async function sendSMSConfirmation(params, businessConfig) {
-  const {
-    businessId,
-    customerPhone,
-    appointmentId,
-    customerName,
-    appointmentDate,
-    appointmentTime,
-    serviceName,
-    serviceDuration,
-  } = params;
 
-  // Get custom SMS template from business config or use default
-  const template =
-    businessConfig?.config?.sms_confirmation_template ||
-    `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
-
-  // Replace template variables with actual values
-  const message = template
-    .replace(/{customer_name}/g, customerName)
-    .replace(
-      /{business_name}/g,
-      businessConfig?.business?.name || "our business"
-    )
-    .replace(/{date}/g, appointmentDate)
-    .replace(/{time}/g, appointmentTime)
-    .replace(/{service_name}/g, serviceName)
-    .replace(/{duration}/g, serviceDuration ? `${serviceDuration} minutes` : "")
-    .replace(/{business_phone}/g, businessConfig?.business?.phone_number || "");
-
-  // Call the SMS API
-  const baseUrl = config.nextjs.siteUrl || "http://localhost:3000";
-  const response = await fetch(`${baseUrl}/api/sms/send`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      businessId,
-      customerPhone,
-      message,
-      type: "confirmation",
-      appointmentId,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`SMS API error: ${response.status} ${errorText}`);
-  }
-
-  const result = await response.json();
-  console.log("📱 SMS confirmation result:", result);
-}
 
 /**
  * Send consolidated SMS confirmation for multiple bookings

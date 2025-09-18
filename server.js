@@ -36,7 +36,7 @@ server.listen(config.websocket.port, () => {
 });
 
 // Handle WebSocket connections
-wss.on("connection", async (ws, req) => {
+wss.on("connection", async (ws) => {
   console.log("New WebSocket connection established");
 
   let deepgramWs = null;
@@ -58,7 +58,7 @@ wss.on("connection", async (ws, req) => {
           console.log("Twilio connected:", data);
           break;
 
-        case "start":
+        case "start": {
           console.log("Media stream started:", data);
           console.log("Media format:", data.start?.mediaFormat);
 
@@ -217,6 +217,7 @@ wss.on("connection", async (ws, req) => {
           });
 
           break;
+        }
 
         case "media":
           // Forward audio to Deepgram only when connection is ready
@@ -260,7 +261,7 @@ wss.on("connection", async (ws, req) => {
           }
           break;
 
-        case "stop":
+        case "stop": {
           console.log("Media stream stopped");
           // Log call completion
           try {
@@ -298,6 +299,7 @@ wss.on("connection", async (ws, req) => {
             closeDeepgramConnection(deepgramWs);
           }
           break;
+        }
       }
     } catch (error) {
       console.error("Error processing WebSocket message:", error);
