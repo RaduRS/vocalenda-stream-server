@@ -345,6 +345,36 @@ export async function handleFunctionCall(
         result = await endCall(callSid, params, businessConfig);
         break;
 
+      case "get_current_time":
+        try {
+          console.log("🕐 Getting current time");
+          const now = new Date();
+          const ukTime = new Date(now.toLocaleString("en-US", { timeZone: UK_TIMEZONE }));
+          
+          const currentTime24 = ukTime.toTimeString().slice(0, 5); // HH:MM format
+          const currentTime12 = ukTime.toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true
+          });
+          
+          console.log(`✅ Current UK time: ${currentTime24} (${currentTime12})`);
+          result = {
+            current_time_24h: currentTime24,
+            current_time_12h: currentTime12,
+            timezone: "Europe/London",
+            timestamp: ukTime.toISOString(),
+            formatted: `It is currently ${currentTime12} UK time`
+          };
+        } catch (error) {
+          console.error("❌ Error getting current time:", error);
+          result = {
+            error: "Unable to get current time",
+            details: error.message
+          };
+        }
+        break;
+
       case "get_day_of_week":
         try {
           // Handle both 'params' and 'parameters' properties, and ensure we have the date
