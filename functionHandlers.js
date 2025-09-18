@@ -995,7 +995,17 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
     }
 
     // Call the new simplified calendar availability API
-    const apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${businessConfig.business.id}&serviceId=${serviceId}&date=${date}`;
+    let apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${businessConfig.business.id}&serviceId=${serviceId}&date=${date}`;
+    
+    // Add customer context if available (for update scenarios)
+    const session = callSid ? getCallSession(callSid) : null;
+    if (session?.callerPhone) {
+      apiUrl += `&customerPhone=${encodeURIComponent(session.callerPhone)}`;
+      console.log(`🔍 Including customer context for availability check: ${session.callerPhone}`);
+    }
+    if (callSid) {
+      apiUrl += `&sessionId=${encodeURIComponent(callSid)}`;
+    }
 
     const response = await fetch(apiUrl, {
       method: "GET",
@@ -1543,16 +1553,18 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       customer_name: customerNameToUse,
       caller_phone: callerPhone,
       sessionId: callSid, // Pass session ID for filler phrase generation
+      isUpdate: true, // Flag to indicate this is an update operation
     };
 
-    // For existing bookings, use appointment_id for precise identification
-    // For new bookings created in this session, use date/time
+    // Always include current_date and current_time (required by API)
+    requestBody.current_date = currentDateToUse;
+    requestBody.current_time = currentTimeToUse;
+    
+    // For existing bookings, also include appointment_id for precise identification
     if (targetBooking.type === 'existing' && targetBooking.originalBookingId) {
       requestBody.appointment_id = targetBooking.originalBookingId;
-      console.log(`🎯 Using appointment_id for existing booking: ${targetBooking.originalBookingId}`);
+      console.log(`🎯 Using appointment_id + date/time for existing booking: ${targetBooking.originalBookingId} (${currentDateToUse} at ${currentTimeToUse})`);
     } else {
-      requestBody.current_date = currentDateToUse;
-      requestBody.current_time = currentTimeToUse;
       console.log(`📅 Using date/time for session booking: ${currentDateToUse} at ${currentTimeToUse}`);
     }
 
