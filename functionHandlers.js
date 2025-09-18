@@ -208,6 +208,54 @@ export async function handleFunctionCall(
       console.log(`✅ TRACKING: Updated processed calls:`, Array.from(processedFunctionCalls));
     }
 
+    // --- START: CRITICAL VALIDATION FOR BOOKING-RELATED FUNCTION CALLS ---
+    // Validate booking requests BEFORE making any API calls
+    if (function_name === "create_booking" || function_name === "get_available_slots") {
+      const { date, time } = params;
+      
+      if (date && time) {
+        // Convert 12-hour format to 24-hour if needed for validation
+        const validationTime = time.includes("AM") || time.includes("PM") || time.includes("am") || time.includes("pm")
+          ? convert12to24Hour(time)
+          : time;
+
+        // Check if the booking time is in the past
+        const businessInfo = businessConfig.business;
+        const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
+        const pastCheck = isBookingInPast(date, validationTime, validationTimezone);
+        
+        if (pastCheck.isPast) {
+          console.error(`❌ FUNCTION_CALL_BLOCKED: ${pastCheck.message}`);
+          return {
+            type: "FunctionCallResponse",
+            id: function_call_id,
+            name: function_name,
+            error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`,
+          };
+        }
+
+        // Check if the requested time is within business hours
+        const businessHoursCheck = isWithinBusinessHours(
+          date,
+          validationTime,
+          businessConfig
+        );
+        
+        if (!businessHoursCheck.isWithin) {
+          console.error(`❌ FUNCTION_CALL_BLOCKED: ${businessHoursCheck.message}`);
+          return {
+            type: "FunctionCallResponse",
+            id: function_call_id,
+            name: function_name,
+            error: `Sorry, I cannot book appointments outside business hours. ${businessHoursCheck.message}`,
+          };
+        }
+        
+        console.log(`✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`);
+      }
+    }
+    // --- END: CRITICAL VALIDATION ---
+
     let result;
 
     switch (function_name) {
@@ -762,24 +810,37 @@ export async function createBooking(businessConfig, params, callSid = null) {
       };
     }
 
-    // Convert 12-hour format to 24-hour if needed for validation
-    const validationTime = time.includes("AM") || time.includes("PM") || time.includes("am") || time.includes("pm")
-      ? convert12to24Hour(time)
-      : time;
+    // --- START: CRITICAL SAFEGUARD FOR AI DUPLICATE BOOKING ATTEMPTS ---
+    // Check if this exact booking has already been successfully made in this session
+    if (callSid && session && session.bookings) {
+      const existingBooking = session.bookings.find(
+        (b) => 
+          b.date === date && 
+          b.time === time && 
+          b.serviceId === service_id && 
+          b.appointmentId // This ensures the first booking was successful
+      );
 
-    // Check if the booking time is in the past
-    const businessInfo = businessConfig.business;
-    const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
-    const pastCheck = isBookingInPast(date, validationTime, validationTimezone);
-    
-    if (pastCheck.isPast) {
-      console.error(`❌ ${pastCheck.message}`);
-      return {
-        error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`,
-      };
+      if (existingBooking) {
+        const timestamp = getShortTimestamp();
+        console.log(`[${timestamp}] ✅ DUPLICATE_BOOKING_IGNORED: Booking was already confirmed in this session.`);
+        console.log(`📋 Existing booking details:`, {
+          customer: existingBooking.customerName,
+          service: existingBooking.serviceName,
+          date: existingBooking.date,
+          time: existingBooking.time,
+          appointmentId: existingBooking.appointmentId
+        });
+        
+        // Return the success details from the original booking to reinforce confirmation
+        return {
+          success: true,
+          appointment_id: existingBooking.appointmentId,
+          message: `✅ BOOKING CONFIRMED: Appointment was already successfully booked for ${customer_name} on ${date} at ${time}.`,
+        };
+      }
     }
-    
-    console.log(`✅ Booking time validation passed: ${pastCheck.bookingTime} is in the future`);
+    // --- END: CRITICAL SAFEGUARD ---
 
     // Find the service (try by ID first, then by name as fallback)
     let service = businessConfig.services.find((s) => s.id === service_id);
