@@ -58,6 +58,8 @@ export function generateSystemPrompt(businessConfig) {
 
 You are the AI voice assistant for ${business.name}. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.
 
+🚨 CRITICAL FAREWELL PROTOCOL: When executing farewell_and_end_call function, DO NOT speak or respond after execution - STAY COMPLETELY SILENT. The function handles everything automatically.
+
 🗓️ CURRENT DATE & TIME CONTEXT:
 - TODAY IS ${todayConversational} (${today})
 - CURRENT TIME IS ${currentTimeConversational} (${currentTime} in 24-hour format)
@@ -299,7 +301,9 @@ If not available: "1 PM isn't available, but I have 11 AM or 2 PM. Which works b
 - After booking completion, say: "Your appointment is confirmed! Is there anything else I can help you with today?"
 
 🚨 WHEN CUSTOMER SAYS GOODBYE:
-When a customer says goodbye, bye, thanks bye, or wants to end the call, IMMEDIATELY execute the farewell_and_end_call function. Do NOT speak after executing this function - the function handles the farewell message and call termination automatically.
+When a customer says goodbye, bye, thanks bye, or wants to end the call, IMMEDIATELY execute the farewell_and_end_call function. 
+⚠️ CRITICAL: Do NOT speak, respond, or say ANYTHING after executing this function - the function handles the farewell message and call termination automatically. 
+⚠️ NEVER say "[The call has ended.]" or any other message after farewell_and_end_call - STAY SILENT.
 
 🚨 CRITICAL BOOKING SUCCESS PROTOCOL:
 - When you successfully book an appointment, that time slot is RESERVED for the customer
