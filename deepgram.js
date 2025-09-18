@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { getCurrentUKDateTime, getShortTimestamp } from "./dateUtils.js";
 import { validateConfig } from "./config.js";
-import { handleFunctionCall } from "./functionHandlers.js";
+import { handleFunctionCall, getCallSession } from "./functionHandlers.js";
 import { db } from "./database.js";
 import { ConnectionState } from "./managers/ConnectionState.js";
 
@@ -790,8 +790,11 @@ export async function handleDeepgramMessage(
  * @param {Object} context - Context object
  */
 async function handleDeepgramMessageType(deepgramData, timestamp, context) {
-  const { twilioWs, deepgramWs, streamSid, state } = context;
+  const { twilioWs, deepgramWs, streamSid, state, callSid } = context;
   const connectionState = deepgramWs.connectionState;
+
+  // Cache session data once per function call to avoid repeated getCallSession calls
+  const session = getCallSession(callSid);
 
   if (deepgramData.type === "SettingsApplied") {
     // Deepgram is now ready to receive audio
@@ -1086,6 +1089,14 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   } else if (deepgramData.type === "ConversationText") {
     const content = deepgramData.text || deepgramData.content;
     console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, content);
+
+    // Check if call is ending and this is from assistant - suppress AI farewell messages
+    if (session?.callEnding && deepgramData.role === "assistant") {
+      console.log(
+        `[${timestamp}] 🛑 CALL_ENDING: Suppressing AI ConversationText because call is terminating: "${content}"`
+      );
+      return;
+    }
 
     // Add conversation text to transcript - both ConversationText and History are needed
     // as they may contain different messages or arrive at different times

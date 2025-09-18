@@ -2259,6 +2259,11 @@ export async function farewellAndEndCall(callSid, params, businessConfig = null,
     console.log(`[${timestamp}] 👋 FAREWELL_AND_END_CALL: Starting goodbye sequence for ${callSid}`);
     console.log(`[${timestamp}] 📝 Reason: ${reason}`);
 
+    // Set callEnding flag to prevent any further AI messages from being processed
+    const currentSession = getCallSession(callSid) || {};
+    setCallSession(callSid, { ...currentSession, callEnding: true });
+    console.log(`[${timestamp}] 🚩 STATE: callEnding flag set for ${callSid}`);
+
     // Send farewell message to AI
     if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
       const businessName = businessConfig?.business?.name || "our business";
