@@ -226,12 +226,24 @@ export async function handleFunctionCall(
         
         if (pastCheck.isPast) {
           console.error(`❌ FUNCTION_CALL_BLOCKED: ${pastCheck.message}`);
-          return {
+          const errorResponse = {
             type: "FunctionCallResponse",
             id: function_call_id,
             name: function_name,
-            error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`,
+            content: JSON.stringify({ 
+              error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future date and time.`
+            }),
           };
+          
+          try {
+            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+              deepgramWs.send(JSON.stringify(errorResponse));
+              console.log("✅ Validation error response sent to Deepgram");
+            }
+          } catch (sendError) {
+            console.error("❌ Error sending validation response:", sendError);
+          }
+          return;
         }
 
         // Check if the requested time is within business hours
@@ -243,12 +255,24 @@ export async function handleFunctionCall(
         
         if (!businessHoursCheck.isWithin) {
           console.error(`❌ FUNCTION_CALL_BLOCKED: ${businessHoursCheck.message}`);
-          return {
+          const errorResponse = {
             type: "FunctionCallResponse",
             id: function_call_id,
             name: function_name,
-            error: `Sorry, I cannot book appointments outside business hours. ${businessHoursCheck.message}`,
+            content: JSON.stringify({ 
+              error: `Sorry, I cannot book appointments outside business hours. ${businessHoursCheck.message}`
+            }),
           };
+          
+          try {
+            if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+              deepgramWs.send(JSON.stringify(errorResponse));
+              console.log("✅ Validation error response sent to Deepgram");
+            }
+          } catch (sendError) {
+            console.error("❌ Error sending validation response:", sendError);
+          }
+          return;
         }
         
         console.log(`✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`);
