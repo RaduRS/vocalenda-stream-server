@@ -2237,3 +2237,57 @@ export async function sendConsolidatedSMSConfirmation(params, businessConfig) {
 
   console.log("✅ Consolidated SMS sent successfully");
 }
+
+/**
+ * Send farewell message and end call with timeout
+ * This function handles the complete goodbye sequence: farewell + timeout + end_call
+ * @param {string} callSid - The Twilio call SID
+ * @param {Object} params - Parameters including reason for ending
+ * @param {Object} businessConfig - Business configuration
+ * @param {WebSocket} deepgramWs - Deepgram WebSocket connection
+ */
+export async function farewellAndEndCall(callSid, params, businessConfig = null, deepgramWs = null) {
+  try {
+    const timestamp = getShortTimestamp();
+    const reason = params?.reason || "customer said goodbye";
+    
+    console.log(`[${timestamp}] 👋 FAREWELL_AND_END_CALL: Starting goodbye sequence for ${callSid}`);
+    console.log(`[${timestamp}] 📝 Reason: ${reason}`);
+
+    // Send farewell message to AI
+    if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
+      deepgramWs.send(
+        JSON.stringify({
+          type: "InjectAgentMessage",
+          content: "Thank you for calling [business name], goodbye!",
+        })
+      );
+      console.log(`[${timestamp}] 💬 Farewell message sent to AI`);
+    } else {
+      console.log(`[${timestamp}] ⚠️ No active Deepgram connection - skipping farewell message`);
+    }
+
+    // Set a 7-second timeout to ensure call ends even if AI doesn't finish speaking
+    setTimeout(async () => {
+      console.log(`[${timestamp}] ⏰ TIMEOUT: Force ending call after 7 seconds`);
+      try {
+        await endCall(callSid, { reason: "farewell timeout after 7 seconds" }, businessConfig);
+      } catch (error) {
+        console.error(`[${timestamp}] ❌ Error in timeout endCall:`, error);
+      }
+    }, 7000);
+
+    return {
+      success: true,
+      message: "Farewell sequence initiated",
+      reason: reason
+    };
+
+  } catch (error) {
+    console.error("❌ Error in farewellAndEndCall:", error);
+    return { 
+      error: "Failed to initiate farewell sequence",
+      details: error.message 
+    };
+  }
+}
