@@ -31,20 +31,21 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
   if (callerPhone && processedGreeting.includes("{customer_name}")) {
     console.log(`👤 GREETING DEBUG: Looking up customer for phone: ${callerPhone}`);
     try {
-      // Look up customer by phone number
-      const { data: existingBookings } = await supabase
-        .from("bookings")
-        .select("customer_name")
-        .eq("customer_phone", callerPhone)
+      // Look up customer by phone number in customer table
+      const { data: existingCustomers } = await supabase
+        .from("customer")
+        .select("first_name, last_name")
+        .eq("phone", callerPhone)
         .eq("business_id", businessConfig?.business?.id)
-        .not("customer_name", "is", null)
+        .not("first_name", "is", null)
         .order("created_at", { ascending: false })
         .limit(1);
       
-      console.log(`📊 GREETING DEBUG: Database query result:`, existingBookings);
+      console.log(`📊 GREETING DEBUG: Database query result:`, existingCustomers);
       
-      if (existingBookings && existingBookings.length > 0) {
-        const customerName = existingBookings[0].customer_name;
+      if (existingCustomers && existingCustomers.length > 0) {
+        const customer = existingCustomers[0];
+        const customerName = customer.first_name + (customer.last_name ? ` ${customer.last_name}` : '');
         processedGreeting = processedGreeting.replace(/{customer_name}/g, customerName);
         console.log(`🎯 GREETING DEBUG: Found customer "${customerName}" - personalized greeting created`);
       } else {
