@@ -56,6 +56,45 @@ export async function loadBusinessConfig(businessId) {
 }
 
 /**
+ * Check if Google Calendar is properly connected for a business
+ * @param {Object} businessConfig - Complete business configuration object
+ * @returns {boolean} True if Google Calendar is connected and configured
+ */
+export function isGoogleCalendarConnected(businessConfig) {
+  const business = businessConfig?.business;
+  const config = businessConfig?.config;
+  
+  // Must have calendar ID in business table
+  if (!business?.google_calendar_id) {
+    return false;
+  }
+  
+  // Must have valid Google tokens in integration settings
+  let integrationSettings;
+  if (config?.integration_settings) {
+    if (typeof config.integration_settings === 'string') {
+      try {
+        integrationSettings = JSON.parse(config.integration_settings);
+      } catch (e) {
+        return false;
+      }
+    } else {
+      integrationSettings = config.integration_settings;
+    }
+  }
+  
+  const hasGoogleTokens = !!(integrationSettings && 
+    typeof integrationSettings === 'object' && 
+    integrationSettings !== null &&
+    'google' in integrationSettings &&
+    typeof integrationSettings.google === 'object' &&
+    integrationSettings.google !== null &&
+    'access_token' in integrationSettings.google);
+    
+  return !!(business.google_calendar_id && hasGoogleTokens);
+}
+
+/**
  * Log Google Calendar connection status for debugging purposes
  * @param {Object} business - Business object
  * @param {Object} config - Business configuration object

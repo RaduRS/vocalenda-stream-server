@@ -2,7 +2,10 @@ import WebSocket, { WebSocketServer } from "ws";
 import express from "express";
 import { createServer } from "http";
 import { validateConfig } from "./config.js";
-import { loadBusinessConfig } from "./businessConfig.js";
+import {
+  loadBusinessConfig,
+  isGoogleCalendarConnected,
+} from "./businessConfig.js";
 import {
   initializeDeepgram,
   handleDeepgramMessage,
@@ -10,7 +13,13 @@ import {
   closeDeepgramConnection,
   saveConversationTranscript,
 } from "./deepgram.js";
-import { clearCallSession, getCallSession, setCallSession, endCall, sendConsolidatedSMSConfirmation } from "./functionHandlers.js";
+import {
+  clearCallSession,
+  getCallSession,
+  setCallSession,
+  endCall,
+  sendConsolidatedSMSConfirmation,
+} from "./functionHandlers.js";
 import { db, supabase } from "./database.js";
 
 // Validate configuration on startup
@@ -86,10 +95,14 @@ wss.on("connection", async (ws) => {
           }
 
           // Check if Google Calendar is connected
-          if (!businessConfig.business?.google_calendar_id) {
-            console.log(`📅 No Google Calendar connected for business ${businessId}`);
-            console.log(`📞 Rejecting call ${callSid} - Google Calendar required`);
-            
+          if (!isGoogleCalendarConnected(businessConfig)) {
+            console.log(
+              `📅 No Google Calendar connected for business ${businessId}`
+            );
+            console.log(
+              `📞 Rejecting call ${callSid} - Google Calendar required`
+            );
+
             // Log the call as rejected due to no calendar
             try {
               if (callSid && callerPhone && businessPhone) {
@@ -100,29 +113,36 @@ wss.on("connection", async (ws) => {
                   callSid
                 );
                 await db.updateCallStatus(callSid, "failed");
-                 
-                 // Update ai_summary with rejection reason
-                 const { error: summaryError } = await supabase
-                   .from("call_logs")
-                   .update({ ai_summary: "Call rejected - Google Calendar not connected" })
-                   .eq("twilio_call_sid", callSid);
-                 
-                 if (summaryError) {
-                   console.error("❌ Failed to update call summary:", summaryError);
-                 }
-                 
-                 console.log(`📞 Call logged as rejected: ${callSid}`);
+
+                // Update ai_summary with rejection reason
+                const { error: summaryError } = await supabase
+                  .from("call_logs")
+                  .update({
+                    ai_summary: "Call rejected - Google Calendar not connected",
+                  })
+                  .eq("twilio_call_sid", callSid);
+
+                if (summaryError) {
+                  console.error(
+                    "❌ Failed to update call summary:",
+                    summaryError
+                  );
+                }
+
+                console.log(`📞 Call logged as rejected: ${callSid}`);
               }
             } catch (error) {
               console.error("❌ Failed to log rejected call:", error);
             }
-            
+
             // Close the connection immediately
             ws.close();
             return;
           }
-          
-          console.log(`📅 Google Calendar connected for business ${businessId}`);
+
+          console.log(
+            `📅 Google Calendar connected for business ${businessId}`
+          );
           console.log(`📞 Proceeding with call ${callSid}`);
 
           // Log the incoming call to database
@@ -140,7 +160,7 @@ wss.on("connection", async (ws) => {
               // Update call status to in_progress
               await db.updateCallStatus(callSid, "in_progress");
               console.log(`📞 Call status updated to in_progress: ${callSid}`);
-              
+
               // Transcript tracking is now handled by ConnectionState
             }
           } catch (error) {
@@ -270,22 +290,40 @@ wss.on("connection", async (ws) => {
               console.log(`📞 Logging call completion: ${callSid}`);
               await db.updateCallStatus(callSid, "completed", endTime);
               console.log(`✅ Call completion logged: ${callSid}`);
-              
+
               // Send SMS confirmations for any pending bookings before call ends
               if (!smsConfirmationSent) {
                 try {
                   const session = getCallSession(callSid);
-                  if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled && businessConfig) {
-                    console.log(`📱 Media stream stopped - sending SMS confirmations for ${callSid}`);
-                    await endCall(callSid, { reason: "media stream stopped" }, businessConfig);
+                  if (
+                    session &&
+                    session.bookings &&
+                    session.bookings.length > 0 &&
+                    session.callerPhone &&
+                    !session.bookingCancelled &&
+                    businessConfig
+                  ) {
+                    console.log(
+                      `📱 Media stream stopped - sending SMS confirmations for ${callSid}`
+                    );
+                    await endCall(
+                      callSid,
+                      { reason: "media stream stopped" },
+                      businessConfig
+                    );
                     smsConfirmationSent = true;
-                    console.log(`✅ SMS confirmations sent on media stop: ${callSid}`);
+                    console.log(
+                      `✅ SMS confirmations sent on media stop: ${callSid}`
+                    );
                   }
                 } catch (smsError) {
-                  console.error(`❌ Error sending SMS confirmations on media stop ${callSid}:`, smsError);
+                  console.error(
+                    `❌ Error sending SMS confirmations on media stop ${callSid}:`,
+                    smsError
+                  );
                 }
               }
-              
+
               // Save conversation transcript
               await saveConversationTranscript(callSid, deepgramWs);
               transcriptSaved = true;
@@ -308,32 +346,37 @@ wss.on("connection", async (ws) => {
 
   ws.on("close", async () => {
     console.log("Twilio WebSocket connection closed");
-  // Log call completion if not already logged
+    // Log call completion if not already logged
     try {
       if (callSid) {
         const endTime = new Date().toISOString();
         console.log(`📞 Logging call completion on close: ${callSid}`);
-        
+
         // Get the call record to calculate duration
         const { data: callRecord, error: fetchError } = await supabase
-          .from('call_logs')
-          .select('started_at')
-          .eq('twilio_call_sid', callSid)
+          .from("call_logs")
+          .select("started_at")
+          .eq("twilio_call_sid", callSid)
           .single();
-          
+
         let duration = null;
         if (!fetchError && callRecord?.started_at) {
           const startTime = new Date(callRecord.started_at);
           const endTimeDate = new Date(endTime);
-          duration = Math.round((endTimeDate.getTime() - startTime.getTime()) / 1000);
+          duration = Math.round(
+            (endTimeDate.getTime() - startTime.getTime()) / 1000
+          );
           console.log(`📊 Call duration calculated: ${duration} seconds`);
         } else {
-          console.error('❌ Failed to fetch call start time for duration calculation:', fetchError);
+          console.error(
+            "❌ Failed to fetch call start time for duration calculation:",
+            fetchError
+          );
         }
-        
-        await db.updateCallStatus(callSid, 'completed', endTime, duration);
+
+        await db.updateCallStatus(callSid, "completed", endTime, duration);
         console.log(`✅ Call completion logged on close: ${callSid}`);
-        
+
         // Save conversation transcript only if not already saved
         if (!transcriptSaved) {
           await saveConversationTranscript(callSid, deepgramWs);
@@ -353,27 +396,43 @@ wss.on("connection", async (ws) => {
         // Only send SMS confirmations if not already sent
         if (!smsConfirmationSent) {
           const session = getCallSession(callSid);
-          if (session && session.bookings && session.bookings.length > 0 && session.callerPhone && !session.bookingCancelled && !session.smsConfirmationSent) {
-            console.log(`📱 Call disconnected abruptly - checking for pending SMS confirmations for ${callSid}`);
-            
+          if (
+            session &&
+            session.bookings &&
+            session.bookings.length > 0 &&
+            session.callerPhone &&
+            !session.bookingCancelled &&
+            !session.smsConfirmationSent
+          ) {
+            console.log(
+              `📱 Call disconnected abruptly - checking for pending SMS confirmations for ${callSid}`
+            );
+
             // Use existing businessConfig or load it if needed
             let configToUse = businessConfig;
             if (!configToUse) {
-              configToUse = await loadBusinessConfig(session.businessId || callSid);
+              configToUse = await loadBusinessConfig(
+                session.businessId || callSid
+              );
             }
-            
+
             if (configToUse) {
               // Use the endCall function which already has the SMS confirmation logic and clears session
-              await endCall(callSid, { reason: "abrupt disconnect" }, configToUse);
-              
+              await endCall(
+                callSid,
+                { reason: "abrupt disconnect" },
+                configToUse
+              );
+
               // Check if session still exists (means SMS failed and session was retained)
               const sessionAfterEndCall = getCallSession(callSid);
               if (sessionAfterEndCall) {
-                console.log(`⚠️ Session still exists after endCall - SMS likely failed, attempting direct SMS retry for ${callSid}`);
-                
+                console.log(
+                  `⚠️ Session still exists after endCall - SMS likely failed, attempting direct SMS retry for ${callSid}`
+                );
+
                 // Try to send SMS directly one more time
-                 try {
-                  
+                try {
                   // Prepare final bookings from session
                   const finalBookings = [];
                   if (sessionAfterEndCall.bookings) {
@@ -383,13 +442,16 @@ wss.on("connection", async (ws) => {
                       }
                     }
                   }
-                  
+
                   if (finalBookings.length > 0) {
                     // Get customer name from session or fallback to first booking's customer name
-                    const customerName = sessionAfterEndCall.customerName || 
-                                        (finalBookings.length > 0 ? finalBookings[0].customerName : null) ||
-                                        "Valued Customer";
-                    
+                    const customerName =
+                      sessionAfterEndCall.customerName ||
+                      (finalBookings.length > 0
+                        ? finalBookings[0].customerName
+                        : null) ||
+                      "Valued Customer";
+
                     await sendConsolidatedSMSConfirmation(
                       {
                         businessId: configToUse.business.id,
@@ -399,28 +461,40 @@ wss.on("connection", async (ws) => {
                       },
                       configToUse
                     );
-                    console.log(`✅ SMS retry successful for abrupt disconnect: ${callSid}`);
-                    
+                    console.log(
+                      `✅ SMS retry successful for abrupt disconnect: ${callSid}`
+                    );
+
                     // Mark SMS as sent to prevent further duplicates
                     const updatedSession = getCallSession(callSid);
                     if (updatedSession) {
-                      setCallSession(callSid, { ...updatedSession, smsConfirmationSent: true });
+                      setCallSession(callSid, {
+                        ...updatedSession,
+                        smsConfirmationSent: true,
+                      });
                     }
                   }
-                  
+
                   // Clear session after successful retry
                   clearCallSession(callSid);
                 } catch (retryError) {
-                  console.error(`❌ SMS retry failed for abrupt disconnect ${callSid}:`, retryError);
+                  console.error(
+                    `❌ SMS retry failed for abrupt disconnect ${callSid}:`,
+                    retryError
+                  );
                   // Clear session anyway to prevent memory leaks
                   clearCallSession(callSid);
                 }
               }
-              
+
               smsConfirmationSent = true;
-              console.log(`✅ SMS confirmations handled for abrupt disconnect: ${callSid}`);
+              console.log(
+                `✅ SMS confirmations handled for abrupt disconnect: ${callSid}`
+              );
             } else {
-              console.error(`❌ Could not load business config for SMS confirmations: ${callSid}`);
+              console.error(
+                `❌ Could not load business config for SMS confirmations: ${callSid}`
+              );
               clearCallSession(callSid);
             }
           } else {
@@ -432,7 +506,10 @@ wss.on("connection", async (ws) => {
           clearCallSession(callSid);
         }
       } catch (error) {
-        console.error(`❌ Error handling SMS confirmations for abrupt disconnect ${callSid}:`, error);
+        console.error(
+          `❌ Error handling SMS confirmations for abrupt disconnect ${callSid}:`,
+          error
+        );
         // Still clear the session even if SMS fails
         clearCallSession(callSid);
       }

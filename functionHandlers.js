@@ -14,6 +14,7 @@ import {
 } from "./dateUtils.js";
 import { isWithinBusinessHours } from "./utils.js";
 import { db } from "./database.js";
+import { isGoogleCalendarConnected } from "./businessConfig.js";
 
 const config = getConfig();
 
@@ -76,7 +77,10 @@ export function clearCallSession(callSid) {
  * @returns {string} A unique booking reference (e.g., "BK1", "BK2", etc.)
  */
 function generateBookingReference() {
-  return `BK${Date.now().toString().slice(-6)}${Math.random().toString(36).substr(2, 2).toUpperCase()}`;
+  return `BK${Date.now().toString().slice(-6)}${Math.random()
+    .toString(36)
+    .substr(2, 2)
+    .toUpperCase()}`;
 }
 
 /**
@@ -91,26 +95,34 @@ export function listCurrentBookings(callSid) {
 
   const session = getCallSession(callSid);
   const bookings = session.bookings || [];
-  
+
   if (bookings.length === 0) {
-    return { 
+    return {
       message: "No bookings found in this session",
-      bookings: []
+      bookings: [],
     };
   }
 
   // Format bookings for AI reference
   const formattedBookings = bookings.map((booking, index) => {
-    const status = booking.appointmentId ? 'CONFIRMED' : 'PENDING';
-    const orderDescription = index === 0 ? 'first' : 
-                           index === bookings.length - 1 ? 'last' : 
-                           `${index + 1}${getOrdinalSuffix(index + 1)}`;
-    
+    const status = booking.appointmentId ? "CONFIRMED" : "PENDING";
+    const orderDescription =
+      index === 0
+        ? "first"
+        : index === bookings.length - 1
+        ? "last"
+        : `${index + 1}${getOrdinalSuffix(index + 1)}`;
+
     // Determine booking source for better AI context
-    const bookingSource = booking.type === 'existing' ? 'from previous call' : 
-                         booking.type === 'create' ? 'created in this call' :
-                         booking.type === 'update' ? 'updated in this call' : 'unknown';
-    
+    const bookingSource =
+      booking.type === "existing"
+        ? "from previous call"
+        : booking.type === "create"
+        ? "created in this call"
+        : booking.type === "update"
+        ? "updated in this call"
+        : "unknown";
+
     return {
       reference: booking.bookingReference,
       order: orderDescription,
@@ -121,15 +133,17 @@ export function listCurrentBookings(callSid) {
       date: booking.date,
       time: booking.time,
       appointmentId: booking.appointmentId,
-      type: booking.type || 'create',
-      source: bookingSource
+      type: booking.type || "create",
+      source: bookingSource,
     };
   });
 
   return {
-    message: `Found ${bookings.length} booking${bookings.length > 1 ? 's' : ''} in this session`,
+    message: `Found ${bookings.length} booking${
+      bookings.length > 1 ? "s" : ""
+    } in this session`,
     bookings: formattedBookings,
-    totalCount: bookings.length
+    totalCount: bookings.length,
   };
 }
 
@@ -139,10 +153,10 @@ export function listCurrentBookings(callSid) {
 function getOrdinalSuffix(num) {
   const j = num % 10;
   const k = num % 100;
-  if (j === 1 && k !== 11) return 'st';
-  if (j === 2 && k !== 12) return 'nd';
-  if (j === 3 && k !== 13) return 'rd';
-  return 'th';
+  if (j === 1 && k !== 11) return "st";
+  if (j === 2 && k !== 12) return "nd";
+  if (j === 3 && k !== 13) return "rd";
+  return "th";
 }
 
 /**
@@ -153,7 +167,11 @@ function getOrdinalSuffix(num) {
  * @param {Object} business - The business configuration
  * @returns {Object|null} The most recent future booking or null
  */
-export async function lookupAndStoreCustomerBookings(callSid, callerPhone, business) {
+export async function lookupAndStoreCustomerBookings(
+  callSid,
+  callerPhone,
+  business
+) {
   if (!callSid || !callerPhone || !business) {
     console.log("⚠️ Missing required parameters for customer booking lookup");
     return null;
@@ -161,7 +179,7 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
 
   try {
     console.log(`🔍 Looking up existing bookings for phone: ${callerPhone}`);
-    
+
     // Call the lookup API to find existing bookings
     const lookupResponse = await fetch(
       `${config.nextjs.siteUrl}/api/voice/lookup-customer-bookings`,
@@ -173,7 +191,7 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
         },
         body: JSON.stringify({
           business_id: business.id,
-          caller_phone: callerPhone
+          caller_phone: callerPhone,
         }),
       }
     );
@@ -182,22 +200,22 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
       const lookupResult = await lookupResponse.json();
       if (lookupResult.bookings && lookupResult.bookings.length > 0) {
         // Filter for future bookings only
-        const futureBookings = lookupResult.bookings.filter(b => {
-          const bookingDate = new Date(b.appointment_date + 'T' + b.start_time);
+        const futureBookings = lookupResult.bookings.filter((b) => {
+          const bookingDate = new Date(b.appointment_date + "T" + b.start_time);
           return bookingDate > new Date();
         });
-        
+
         if (futureBookings.length > 0) {
           // Convert existing bookings to session format with booking references
-          const sessionBookings = futureBookings.map(booking => ({
+          const sessionBookings = futureBookings.map((booking) => ({
             bookingReference: generateBookingReference(),
             customerName: booking.customer_name,
             serviceName: booking.service_name,
             date: booking.appointment_date,
             time: booking.start_time,
             appointmentId: booking.id,
-            type: 'existing', // Mark as existing booking from previous call
-            originalBookingId: booking.id // Keep original ID for updates
+            type: "existing", // Mark as existing booking from previous call
+            originalBookingId: booking.id, // Keep original ID for updates
           }));
 
           // Store ALL future bookings in session for better handling
@@ -208,26 +226,30 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
             allFutureBookings: futureBookings,
             bookings: sessionBookings, // Add to bookings array with references
             // Only set current booking details if there's exactly one booking
-            ...(futureBookings.length === 1 ? {
-              currentDate: futureBookings[0].appointment_date,
-              currentTime: futureBookings[0].start_time,
-              currentServiceName: futureBookings[0].service_name,
-              selectedBookingId: futureBookings[0].id
-            } : {})
+            ...(futureBookings.length === 1
+              ? {
+                  currentDate: futureBookings[0].appointment_date,
+                  currentTime: futureBookings[0].start_time,
+                  currentServiceName: futureBookings[0].service_name,
+                  selectedBookingId: futureBookings[0].id,
+                }
+              : {}),
           });
-          
+
           console.log("✅ Stored existing bookings in session:", {
             customer: futureBookings[0].customer_name,
             totalFutureBookings: futureBookings.length,
-            bookings: futureBookings.map(b => ({
+            bookings: futureBookings.map((b) => ({
               id: b.id,
               date: b.appointment_date,
               time: b.start_time,
-              service: b.service_name
-            }))
+              service: b.service_name,
+            })),
           });
-          
-          return futureBookings.length === 1 ? futureBookings[0] : futureBookings;
+
+          return futureBookings.length === 1
+            ? futureBookings[0]
+            : futureBookings;
         } else {
           console.log("📅 No future bookings found for this customer");
         }
@@ -235,12 +257,15 @@ export async function lookupAndStoreCustomerBookings(callSid, callerPhone, busin
         console.log("📅 No existing bookings found for this customer");
       }
     } else {
-      console.log("⚠️ Could not lookup existing bookings:", lookupResponse.status);
+      console.log(
+        "⚠️ Could not lookup existing bookings:",
+        lookupResponse.status
+      );
     }
   } catch (error) {
     console.error("❌ Error during proactive booking lookup:", error);
   }
-  
+
   return null;
 }
 
@@ -271,11 +296,19 @@ export async function handleFunctionCall(
 
     // Check for duplicate create_booking requests
     if (function_name === "create_booking" && function_call_id) {
-      console.log(`🔍 DEDUP CHECK: Checking function call ID ${function_call_id}`);
-      console.log(`🔍 DEDUP CHECK: Current processed calls:`, Array.from(processedFunctionCalls));
-      console.log(`🔍 DEDUP CHECK: Function parameters:`, JSON.stringify(params, null, 2));
+      console.log(
+        `🔍 DEDUP CHECK: Checking function call ID ${function_call_id}`
+      );
+      console.log(
+        `🔍 DEDUP CHECK: Current processed calls:`,
+        Array.from(processedFunctionCalls)
+      );
+      console.log(
+        `🔍 DEDUP CHECK: Function parameters:`,
+        JSON.stringify(params, null, 2)
+      );
       console.log(`🔍 DEDUP CHECK: Timestamp:`, getShortTimestamp());
-      
+
       if (processedFunctionCalls.has(function_call_id)) {
         console.log(
           `🚫 DUPLICATE BOOKING REQUEST DETECTED: ${function_call_id}`
@@ -292,26 +325,34 @@ export async function handleFunctionCall(
       console.log(
         `✅ TRACKING: Added function call ID ${function_call_id} to processed set`
       );
-      console.log(`✅ TRACKING: Updated processed calls:`, Array.from(processedFunctionCalls));
+      console.log(
+        `✅ TRACKING: Updated processed calls:`,
+        Array.from(processedFunctionCalls)
+      );
     }
 
     // --- START: CRITICAL VALIDATION FOR BOOKING-RELATED FUNCTION CALLS ---
     // 🚨 ALWAYS validate booking requests BEFORE making any API calls
-    if (function_name === "create_booking" || function_name === "get_available_slots") {
+    if (
+      function_name === "create_booking" ||
+      function_name === "get_available_slots"
+    ) {
       const { date, time } = params;
-      
+
       // CRITICAL: We need a date to proceed with any booking-related function
       if (!date) {
-        console.error(`❌ FUNCTION_CALL_BLOCKED: No date provided for ${function_name}`);
+        console.error(
+          `❌ FUNCTION_CALL_BLOCKED: No date provided for ${function_name}`
+        );
         const errorResponse = {
           type: "FunctionCallResponse",
           id: function_call_id,
           name: function_name,
-          content: JSON.stringify({ 
-            error: "Please specify a date for your appointment."
+          content: JSON.stringify({
+            error: "Please specify a date for your appointment.",
           }),
         };
-        
+
         try {
           if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
             deepgramWs.send(JSON.stringify(errorResponse));
@@ -327,12 +368,20 @@ export async function handleFunctionCall(
       const businessInfo = businessConfig.business;
       const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
       const now = new Date();
-      const ukNow = new Date(now.toLocaleString("en-US", { timeZone: validationTimezone }));
+      const ukNow = new Date(
+        now.toLocaleString("en-US", { timeZone: validationTimezone })
+      );
       const currentTime = ukNow.toTimeString().slice(0, 5); // HH:MM format
-      const currentDate = ukNow.toISOString().split('T')[0]; // YYYY-MM-DD format
-      
-      console.log(`🕐 Current UK time: ${currentTime}, Current date: ${currentDate}`);
-      console.log(`📅 Validating request for date: ${date}, time: ${time || 'not specified'}`);
+      const currentDate = ukNow.toISOString().split("T")[0]; // YYYY-MM-DD format
+
+      console.log(
+        `🕐 Current UK time: ${currentTime}, Current date: ${currentDate}`
+      );
+      console.log(
+        `📅 Validating request for date: ${date}, time: ${
+          time || "not specified"
+        }`
+      );
 
       // Parse the requested date
       let requestedDate;
@@ -344,11 +393,12 @@ export async function handleFunctionCall(
           type: "FunctionCallResponse",
           id: function_call_id,
           name: function_name,
-          content: JSON.stringify({ 
-            error: "Please provide a valid date format (e.g., 2024-01-15 or today)."
+          content: JSON.stringify({
+            error:
+              "Please provide a valid date format (e.g., 2024-01-15 or today).",
           }),
         };
-        
+
         try {
           if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
             deepgramWs.send(JSON.stringify(errorResponse));
@@ -361,18 +411,18 @@ export async function handleFunctionCall(
       }
 
       // Check if the requested date is in the past
-      const requestedDateStr = requestedDate.toISOString().split('T')[0];
+      const requestedDateStr = requestedDate.toISOString().split("T")[0];
       if (requestedDateStr < currentDate) {
         console.error(`❌ FUNCTION_CALL_BLOCKED: Date ${date} is in the past`);
         const errorResponse = {
           type: "FunctionCallResponse",
           id: function_call_id,
           name: function_name,
-          content: JSON.stringify({ 
-            error: `Sorry, I cannot book appointments for past dates. Today is ${currentDate}. Please choose today or a future date.`
+          content: JSON.stringify({
+            error: `Sorry, I cannot book appointments for past dates. Today is ${currentDate}. Please choose today or a future date.`,
           }),
         };
-        
+
         try {
           if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
             deepgramWs.send(JSON.stringify(errorResponse));
@@ -390,18 +440,21 @@ export async function handleFunctionCall(
         "09:00", // Use a default time just to check if the day is open
         businessConfig
       );
-      
-      if (!businessHoursCheck.isWithin && businessHoursCheck.message.includes("closed")) {
+
+      if (
+        !businessHoursCheck.isWithin &&
+        businessHoursCheck.message.includes("closed")
+      ) {
         console.error(`❌ FUNCTION_CALL_BLOCKED: Business closed on ${date}`);
         const errorResponse = {
           type: "FunctionCallResponse",
           id: function_call_id,
           name: function_name,
-          content: JSON.stringify({ 
-            error: `Sorry, we are closed on that day. ${businessHoursCheck.message}`
+          content: JSON.stringify({
+            error: `Sorry, we are closed on that day. ${businessHoursCheck.message}`,
           }),
         };
-        
+
         try {
           if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
             deepgramWs.send(JSON.stringify(errorResponse));
@@ -416,24 +469,32 @@ export async function handleFunctionCall(
       // If we have both date and time, do additional time validation
       if (time) {
         // Convert 12-hour format to 24-hour if needed for validation
-        const validationTime = time.includes("AM") || time.includes("PM") || time.includes("am") || time.includes("pm")
-          ? convert12to24Hour(time)
-          : time;
+        const validationTime =
+          time.includes("AM") ||
+          time.includes("PM") ||
+          time.includes("am") ||
+          time.includes("pm")
+            ? convert12to24Hour(time)
+            : time;
 
         // Check if the booking time is in the past (for today's bookings)
-        const pastCheck = isBookingInPast(date, validationTime, validationTimezone);
-        
+        const pastCheck = isBookingInPast(
+          date,
+          validationTime,
+          validationTimezone
+        );
+
         if (pastCheck.isPast) {
           console.error(`❌ FUNCTION_CALL_BLOCKED: ${pastCheck.message}`);
           const errorResponse = {
             type: "FunctionCallResponse",
             id: function_call_id,
             name: function_name,
-            content: JSON.stringify({ 
-              error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future time.`
+            content: JSON.stringify({
+              error: `Sorry, I cannot book appointments in the past. The current time is ${pastCheck.currentTime}. Please choose a future time.`,
             }),
           };
-          
+
           try {
             if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
               deepgramWs.send(JSON.stringify(errorResponse));
@@ -451,18 +512,20 @@ export async function handleFunctionCall(
           validationTime,
           businessConfig
         );
-        
+
         if (!timeBusinessHoursCheck.isWithin) {
-          console.error(`❌ FUNCTION_CALL_BLOCKED: ${timeBusinessHoursCheck.message}`);
+          console.error(
+            `❌ FUNCTION_CALL_BLOCKED: ${timeBusinessHoursCheck.message}`
+          );
           const errorResponse = {
             type: "FunctionCallResponse",
             id: function_call_id,
             name: function_name,
-            content: JSON.stringify({ 
-              error: `Sorry, I cannot book appointments outside business hours. ${timeBusinessHoursCheck.message}`
+            content: JSON.stringify({
+              error: `Sorry, I cannot book appointments outside business hours. ${timeBusinessHoursCheck.message}`,
             }),
           };
-          
+
           try {
             if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
               deepgramWs.send(JSON.stringify(errorResponse));
@@ -474,8 +537,10 @@ export async function handleFunctionCall(
           return;
         }
       }
-      
-      console.log(`✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`);
+
+      console.log(
+        `✅ FUNCTION_CALL_VALIDATION: ${function_name} passed all checks - proceeding with API call`
+      );
     }
     // --- END: CRITICAL VALIDATION ---
 
@@ -552,28 +617,32 @@ export async function handleFunctionCall(
         try {
           console.log("🕐 Getting current time");
           const now = new Date();
-          const ukTime = new Date(now.toLocaleString("en-US", { timeZone: UK_TIMEZONE }));
-          
+          const ukTime = new Date(
+            now.toLocaleString("en-US", { timeZone: UK_TIMEZONE })
+          );
+
           const currentTime24 = ukTime.toTimeString().slice(0, 5); // HH:MM format
           const currentTime12 = ukTime.toLocaleTimeString("en-GB", {
             hour: "2-digit",
             minute: "2-digit",
-            hour12: true
+            hour12: true,
           });
-          
-          console.log(`✅ Current UK time: ${currentTime24} (${currentTime12})`);
+
+          console.log(
+            `✅ Current UK time: ${currentTime24} (${currentTime12})`
+          );
           result = {
             current_time_24h: currentTime24,
             current_time_12h: currentTime12,
             timezone: "Europe/London",
             timestamp: ukTime.toISOString(),
-            formatted: `It is currently ${currentTime12} UK time`
+            formatted: `It is currently ${currentTime12} UK time`,
           };
         } catch (error) {
           console.error("❌ Error getting current time:", error);
           result = {
             error: "Unable to get current time",
-            details: error.message
+            details: error.message,
           };
         }
         break;
@@ -583,28 +652,35 @@ export async function handleFunctionCall(
           // Handle both 'params' and 'parameters' properties, and ensure we have the date
           const functionParams = params || functionCallData.parameters || {};
           const dateValue = functionParams.date;
-          
-          console.log("📅 Function call data:", JSON.stringify(functionCallData, null, 2));
-          console.log("📅 Extracted params:", JSON.stringify(functionParams, null, 2));
+
+          console.log(
+            "📅 Function call data:",
+            JSON.stringify(functionCallData, null, 2)
+          );
+          console.log(
+            "📅 Extracted params:",
+            JSON.stringify(functionParams, null, 2)
+          );
           console.log("📅 Getting day of week for:", dateValue);
           console.log("📅 Date type:", typeof dateValue);
           console.log("📅 Date value:", JSON.stringify(dateValue));
-          
+
           if (!dateValue) {
             result = {
-              error: "No date provided. Please specify a date in DD/MM/YYYY format (e.g., 18/09/2025).",
+              error:
+                "No date provided. Please specify a date in DD/MM/YYYY format (e.g., 18/09/2025).",
               debug_info: {
                 received_params: functionParams,
-                function_call_data: functionCallData
-              }
+                function_call_data: functionCallData,
+              },
             };
             break;
           }
-          
+
           // Try to parse the date
           const parsedDate = parseUKDate(dateValue);
           console.log("📅 Parsed date successfully:", parsedDate);
-          
+
           const dayName = getDayOfWeekName(parsedDate);
           const dayNumber = getDayOfWeekNumber(parsedDate);
 
@@ -623,45 +699,58 @@ export async function handleFunctionCall(
           console.error("❌ Error getting day of week:", error);
           console.error("❌ Error details:", error.message);
           console.error("❌ Error stack:", error.stack);
-          
+
           // Try alternative parsing approaches
           console.log("🔄 Attempting alternative date parsing...");
           try {
             const functionParams = params || functionCallData.parameters || {};
             const dateValue = functionParams.date;
-            
+
             if (!dateValue) {
-              throw new Error("No date value available for alternative parsing");
+              throw new Error(
+                "No date value available for alternative parsing"
+              );
             }
-            
+
             // Try direct Date parsing
             const directParse = new Date(dateValue);
             console.log("📅 Direct Date() parsing result:", directParse);
-            console.log("📅 Direct Date() is valid:", !isNaN(directParse.getTime()));
-            
+            console.log(
+              "📅 Direct Date() is valid:",
+              !isNaN(directParse.getTime())
+            );
+
             // Try manual parsing for DD/MM/YYYY
-            const parts = dateValue.split('/');
+            const parts = dateValue.split("/");
             if (parts.length === 3) {
               const day = parseInt(parts[0], 10);
               const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
               const year = parseInt(parts[2], 10);
               const manualDate = new Date(year, month, day);
               console.log("📅 Manual parsing result:", manualDate);
-              console.log("📅 Manual parsing is valid:", !isNaN(manualDate.getTime()));
-              
+              console.log(
+                "📅 Manual parsing is valid:",
+                !isNaN(manualDate.getTime())
+              );
+
               if (!isNaN(manualDate.getTime())) {
                 const dayName = getDayOfWeekName(manualDate);
                 const dayNumber = getDayOfWeekNumber(manualDate);
-                console.log(`✅ Manual parsing success: ${dateValue} is a ${dayName}`);
+                console.log(
+                  `✅ Manual parsing success: ${dateValue} is a ${dayName}`
+                );
                 result = {
                   date: dateValue,
                   day_of_week: dayName,
                   day_number: dayNumber,
-                  formatted: `${dayName}, ${manualDate.toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}`,
+                  formatted: `${dayName}, ${manualDate.toLocaleDateString(
+                    "en-GB",
+                    {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    }
+                  )}`,
                 };
                 break;
               }
@@ -669,18 +758,20 @@ export async function handleFunctionCall(
           } catch (altError) {
             console.error("❌ Alternative parsing also failed:", altError);
           }
-          
+
           const functionParams = params || functionCallData.parameters || {};
           const dateValue = functionParams.date;
-          
+
           result = {
-            error: `Invalid date format: "${dateValue || 'undefined'}". Please use DD/MM/YYYY format (e.g., 16/09/2025).`,
+            error: `Invalid date format: "${
+              dateValue || "undefined"
+            }". Please use DD/MM/YYYY format (e.g., 16/09/2025).`,
             debug_info: {
               received_date: dateValue,
               date_type: typeof dateValue,
               error_message: error.message,
-              function_call_data: functionCallData
-            }
+              function_call_data: functionCallData,
+            },
           };
         }
         break;
@@ -689,21 +780,28 @@ export async function handleFunctionCall(
         console.log("🎯 Processing select_booking function call");
         try {
           const session = getCallSession(callSid);
-          
-          if (!session || !session.allFutureBookings || session.allFutureBookings.length === 0) {
-            result = { error: "No bookings available to select from. Please lookup your bookings first." };
+
+          if (
+            !session ||
+            !session.allFutureBookings ||
+            session.allFutureBookings.length === 0
+          ) {
+            result = {
+              error:
+                "No bookings available to select from. Please lookup your bookings first.",
+            };
             break;
           }
-          
+
           const { appointment_date, start_time, service_name } = params;
-          
+
           // Find the matching booking based on provided criteria
           let selectedBooking = null;
-          
+
           for (const booking of session.allFutureBookings) {
             let matches = 0;
             let totalCriteria = 0;
-            
+
             // Check date match
             if (appointment_date) {
               totalCriteria++;
@@ -711,7 +809,7 @@ export async function handleFunctionCall(
                 matches++;
               }
             }
-            
+
             // Check time match
             if (start_time) {
               totalCriteria++;
@@ -719,23 +817,29 @@ export async function handleFunctionCall(
                 matches++;
               }
             }
-            
+
             // Check service match (fuzzy matching for service names)
             if (service_name) {
               totalCriteria++;
-              if (booking.service_name.toLowerCase().includes(service_name.toLowerCase()) ||
-                  service_name.toLowerCase().includes(booking.service_name.toLowerCase())) {
+              if (
+                booking.service_name
+                  .toLowerCase()
+                  .includes(service_name.toLowerCase()) ||
+                service_name
+                  .toLowerCase()
+                  .includes(booking.service_name.toLowerCase())
+              ) {
                 matches++;
               }
             }
-            
+
             // If all provided criteria match, this is our booking
             if (matches === totalCriteria && totalCriteria > 0) {
               selectedBooking = booking;
               break;
             }
           }
-          
+
           if (selectedBooking) {
             // Store the selected booking details in session
             setCallSession(callSid, {
@@ -743,9 +847,9 @@ export async function handleFunctionCall(
               currentDate: selectedBooking.appointment_date,
               currentTime: selectedBooking.start_time,
               currentServiceName: selectedBooking.service_name,
-              selectedBookingId: selectedBooking.id
+              selectedBookingId: selectedBooking.id,
             });
-            
+
             result = {
               success: true,
               message: `Selected your ${selectedBooking.service_name} appointment on ${selectedBooking.appointment_date} at ${selectedBooking.start_time}. How would you like to modify this booking?`,
@@ -754,26 +858,29 @@ export async function handleFunctionCall(
                 customer_name: selectedBooking.customer_name,
                 appointment_date: selectedBooking.appointment_date,
                 start_time: selectedBooking.start_time,
-                service_name: selectedBooking.service_name
-              }
+                service_name: selectedBooking.service_name,
+              },
             };
           } else {
             // No exact match found, provide available options
-            const availableOptions = session.allFutureBookings.map(booking => 
-              `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
-            ).join(', ');
-            
+            const availableOptions = session.allFutureBookings
+              .map(
+                (booking) =>
+                  `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
+              )
+              .join(", ");
+
             result = {
               success: false,
               message: `I couldn't find a booking matching those details. Your available appointments are: ${availableOptions}. Please specify which one you'd like to modify.`,
-              available_bookings: session.allFutureBookings.map(booking => ({
+              available_bookings: session.allFutureBookings.map((booking) => ({
                 id: booking.id,
                 customer_name: booking.customer_name,
                 appointment_date: booking.appointment_date,
                 start_time: booking.start_time,
                 service_name: booking.service_name,
-                formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
-              }))
+                formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`,
+              })),
             };
           }
         } catch (error) {
@@ -791,18 +898,18 @@ export async function handleFunctionCall(
         try {
           const session = getCallSession(callSid);
           const phoneToUse = callerPhone || session.callerPhone;
-          
+
           if (!phoneToUse) {
             result = { error: "No phone number available for customer lookup" };
             break;
           }
-          
+
           const existingBooking = await lookupAndStoreCustomerBookings(
-            callSid, 
-            phoneToUse, 
+            callSid,
+            phoneToUse,
             businessConfig.business
           );
-          
+
           if (existingBooking) {
             // Check if it's a single booking or multiple bookings
             if (Array.isArray(existingBooking)) {
@@ -811,14 +918,14 @@ export async function handleFunctionCall(
                 success: true,
                 message: `Found ${existingBooking.length} future bookings for ${existingBooking[0].customer_name}. Please specify which appointment you'd like to modify by mentioning the date, time, or service.`,
                 multiple_bookings: true,
-                bookings: existingBooking.map(booking => ({
+                bookings: existingBooking.map((booking) => ({
                   id: booking.id,
                   customer_name: booking.customer_name,
                   appointment_date: booking.appointment_date,
                   start_time: booking.start_time,
                   service_name: booking.service_name,
-                  formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`
-                }))
+                  formatted_info: `${booking.service_name} on ${booking.appointment_date} at ${booking.start_time}`,
+                })),
               };
             } else {
               // Single booking found
@@ -831,8 +938,8 @@ export async function handleFunctionCall(
                   customer_name: existingBooking.customer_name,
                   appointment_date: existingBooking.appointment_date,
                   start_time: existingBooking.start_time,
-                  service_name: existingBooking.service_name
-                }
+                  service_name: existingBooking.service_name,
+                },
               };
             }
           } else {
@@ -840,7 +947,7 @@ export async function handleFunctionCall(
               success: true,
               message: "No existing future bookings found for this customer",
               multiple_bookings: false,
-              booking: null
+              booking: null,
             };
           }
         } catch (error) {
@@ -906,9 +1013,15 @@ export async function handleFunctionCall(
  * @param {Object} params - Parameters including date and service_id
  * @returns {Object} Available slots or error
  */
-export async function getAvailableSlots(businessConfig, params, callSid = null) {
+export async function getAvailableSlots(
+  businessConfig,
+  params,
+  callSid = null
+) {
   const timestamp = getShortTimestamp();
-  console.log(`[${timestamp}] 🗓️ GET_SLOTS: ${params.date} service:${params.service_id}`);
+  console.log(
+    `[${timestamp}] 🗓️ GET_SLOTS: ${params.date} service:${params.service_id}`
+  );
 
   try {
     const { date, service_id } = params;
@@ -996,12 +1109,14 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
 
     // Call the new simplified calendar availability API
     let apiUrl = `${config.nextjs.siteUrl}/api/calendar/availability?businessId=${businessConfig.business.id}&serviceId=${serviceId}&date=${date}`;
-    
+
     // Add customer context if available (for update scenarios)
     const session = callSid ? getCallSession(callSid) : null;
     if (session?.callerPhone) {
       apiUrl += `&customerPhone=${encodeURIComponent(session.callerPhone)}`;
-      console.log(`🔍 Including customer context for availability check: ${session.callerPhone}`);
+      console.log(
+        `🔍 Including customer context for availability check: ${session.callerPhone}`
+      );
     }
     if (callSid) {
       apiUrl += `&sessionId=${encodeURIComponent(callSid)}`;
@@ -1015,7 +1130,11 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
     });
 
     const result = await response.json();
-    console.log(`[${timestamp}] 📡 API: ${response.status} - ${result.slots?.length || 0} slots`);
+    console.log(
+      `[${timestamp}] 📡 API: ${response.status} - ${
+        result.slots?.length || 0
+      } slots`
+    );
 
     if (!response.ok) {
       console.error("❌ Calendar API error:", result);
@@ -1028,9 +1147,9 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
 
     // Helper function to convert 24-hour to 12-hour format
     const convertTo12Hour = (time24) => {
-      const [hours, minutes] = time24.split(':');
+      const [hours, minutes] = time24.split(":");
       const hour = parseInt(hours);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const ampm = hour >= 12 ? "PM" : "AM";
       const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
       return `${hour12}:${minutes} ${ampm}`;
     };
@@ -1045,7 +1164,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       setCallSession(callSid, {
         ...session,
         lastCheckedDate: date,
-        lastCheckedTimestamp: getShortTimestamp()
+        lastCheckedTimestamp: getShortTimestamp(),
       });
       console.log(`📅 Stored checked date in session: ${date}`);
     }
@@ -1056,7 +1175,7 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
       conversion_map: availableTimes.reduce((map, time24, index) => {
         map[availableSlots12Hour[index]] = time24;
         return map;
-      }, {})
+      }, {}),
     };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);
@@ -1073,7 +1192,9 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
 export async function createBooking(businessConfig, params, callSid = null) {
   try {
     const timestamp = getShortTimestamp();
-    console.log(`[${timestamp}] 📅 CREATE_BOOKING: ${params.customer_name} - ${params.service_id} on ${params.date} at ${params.time}`);
+    console.log(
+      `[${timestamp}] 📅 CREATE_BOOKING: ${params.customer_name} - ${params.service_id} on ${params.date} at ${params.time}`
+    );
 
     const { customer_name, service_id, date, time, customer_phone } = params;
 
@@ -1099,24 +1220,26 @@ export async function createBooking(businessConfig, params, callSid = null) {
     // Check if this exact booking has already been successfully made in this session
     if (callSid && session && session.bookings) {
       const existingBooking = session.bookings.find(
-        (b) => 
-          b.date === date && 
-          b.time === time && 
-          b.serviceId === service_id && 
+        (b) =>
+          b.date === date &&
+          b.time === time &&
+          b.serviceId === service_id &&
           b.appointmentId // This ensures the first booking was successful
       );
 
       if (existingBooking) {
         const timestamp = getShortTimestamp();
-        console.log(`[${timestamp}] ✅ DUPLICATE_BOOKING_IGNORED: Booking was already confirmed in this session.`);
+        console.log(
+          `[${timestamp}] ✅ DUPLICATE_BOOKING_IGNORED: Booking was already confirmed in this session.`
+        );
         console.log(`📋 Existing booking details:`, {
           customer: existingBooking.customerName,
           service: existingBooking.serviceName,
           date: existingBooking.date,
           time: existingBooking.time,
-          appointmentId: existingBooking.appointmentId
+          appointmentId: existingBooking.appointmentId,
         });
-        
+
         // Return the success details from the original booking to reinforce confirmation
         return {
           success: true,
@@ -1164,7 +1287,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
     if (callSid && customer_name) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
-      
+
       // Add this booking to the list (will be updated with appointment ID later)
       const newBooking = {
         bookingReference: generateBookingReference(),
@@ -1175,11 +1298,11 @@ export async function createBooking(businessConfig, params, callSid = null) {
         serviceName: service.name,
         serviceDuration: service.duration_minutes,
         appointmentId: null, // Will be set after successful creation
-        type: 'create'
+        type: "create",
       };
-      
+
       bookings.push(newBooking);
-      
+
       setCallSession(callSid, {
         customerName: customer_name,
         lastBookingDate: date,
@@ -1187,7 +1310,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
         lastServiceId: service_id,
         lastServiceName: service.name,
         lastServiceDuration: service.duration_minutes,
-        bookings: bookings
+        bookings: bookings,
       });
     }
 
@@ -1377,7 +1500,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
     if (callSid && result.appointmentId) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
-      
+
       // Update the most recent booking with the appointment ID
       if (bookings.length > 0) {
         const lastBooking = bookings[bookings.length - 1];
@@ -1385,11 +1508,11 @@ export async function createBooking(businessConfig, params, callSid = null) {
           lastBooking.appointmentId = result.appointmentId;
         }
       }
-      
+
       setCallSession(callSid, {
         lastAppointmentId: result.appointmentId,
         lastServiceDuration: service.duration_minutes,
-        bookings: bookings
+        bookings: bookings,
       });
       console.log(
         `📋 Stored appointment ID in session: ${result.appointmentId}`
@@ -1422,7 +1545,11 @@ export async function createBooking(businessConfig, params, callSid = null) {
 export async function updateBooking(businessConfig, params, callSid = null) {
   try {
     const timestamp = getShortTimestamp();
-    console.log(`[${timestamp}] 📝 UPDATE_BOOKING: Booking reference ${params.booking_reference || 'not specified'}`);
+    console.log(
+      `[${timestamp}] 📝 UPDATE_BOOKING: Booking reference ${
+        params.booking_reference || "not specified"
+      }`
+    );
 
     const {
       booking_reference,
@@ -1437,7 +1564,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     // Get business config early to avoid initialization errors
     const business = businessConfig.business;
 
-    if (!business?.google_calendar_id) {
+    if (!isGoogleCalendarConnected(businessConfig)) {
       console.error("❌ No Google Calendar connected for business");
       return { error: "Calendar not connected" };
     }
@@ -1448,64 +1575,73 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     // CRITICAL: Use booking reference to identify the exact booking
     let targetBooking = null;
-    
+
     if (booking_reference) {
       // Find booking by reference ID
       const bookings = session.bookings || [];
-      targetBooking = bookings.find(b => b.bookingReference === booking_reference);
-      
+      targetBooking = bookings.find(
+        (b) => b.bookingReference === booking_reference
+      );
+
       if (!targetBooking) {
-        console.error(`❌ Booking reference ${booking_reference} not found in session`);
-        return { 
-          error: `Booking reference ${booking_reference} not found. Please use list_current_bookings to see available bookings.` 
+        console.error(
+          `❌ Booking reference ${booking_reference} not found in session`
+        );
+        return {
+          error: `Booking reference ${booking_reference} not found. Please use list_current_bookings to see available bookings.`,
         };
       }
-      
+
       if (!targetBooking.appointmentId) {
-        console.error(`❌ Booking reference ${booking_reference} has no appointment ID`);
-        return { 
-          error: `Booking ${booking_reference} is not confirmed yet. Cannot update pending bookings.` 
+        console.error(
+          `❌ Booking reference ${booking_reference} has no appointment ID`
+        );
+        return {
+          error: `Booking ${booking_reference} is not confirmed yet. Cannot update pending bookings.`,
         };
       }
-      
+
       console.log("🎯 Found target booking by reference:", {
         reference: targetBooking.bookingReference,
         appointmentId: targetBooking.appointmentId,
         service: targetBooking.serviceName,
         date: targetBooking.date,
-        time: targetBooking.time
+        time: targetBooking.time,
       });
-      
     } else {
       // FALLBACK: If no booking reference provided, require explicit date/time or error
       if (!current_date || !current_time) {
-        return { 
-          error: "Please specify which booking to update by providing either a booking reference (use list_current_bookings to see them) or the current date and time of the appointment." 
+        return {
+          error:
+            "Please specify which booking to update by providing either a booking reference (use list_current_bookings to see them) or the current date and time of the appointment.",
         };
       }
-      
+
       // Try to find by date/time as fallback
       const bookings = session.bookings || [];
-      targetBooking = bookings.find(b => 
-        b.date === current_date && 
-        b.time === current_time && 
-        b.appointmentId &&
-        !b.updatedTo
+      targetBooking = bookings.find(
+        (b) =>
+          b.date === current_date &&
+          b.time === current_time &&
+          b.appointmentId &&
+          !b.updatedTo
       );
-      
+
       if (!targetBooking) {
-        console.error(`❌ No booking found for ${current_date} at ${current_time}`);
-        return { 
-          error: `No confirmed booking found for ${current_date} at ${current_time}. Please use list_current_bookings to see available bookings.` 
+        console.error(
+          `❌ No booking found for ${current_date} at ${current_time}`
+        );
+        return {
+          error: `No confirmed booking found for ${current_date} at ${current_time}. Please use list_current_bookings to see available bookings.`,
         };
       }
-      
+
       console.log("🎯 Found target booking by date/time:", {
         reference: targetBooking.bookingReference,
         appointmentId: targetBooking.appointmentId,
         service: targetBooking.serviceName,
         date: targetBooking.date,
-        time: targetBooking.time
+        time: targetBooking.time,
       });
     }
 
@@ -1516,11 +1652,14 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 
     // If we still don't have current booking details, something went wrong
     if (!currentDateToUse || !currentTimeToUse) {
-      console.log("❌ No target booking found - cannot update without booking reference");
+      console.log(
+        "❌ No target booking found - cannot update without booking reference"
+      );
       return {
         success: false,
-        message: "Could not identify which booking to update. Please specify which booking you'd like to change.",
-        error: "NO_TARGET_BOOKING"
+        message:
+          "Could not identify which booking to update. Please specify which booking you'd like to change.",
+        error: "NO_TARGET_BOOKING",
       };
     }
 
@@ -1539,16 +1678,26 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       const now = new Date();
       const checkedTime = new Date(checkedTimestamp);
       const timeDiffMinutes = (now - checkedTime) / (1000 * 60);
-      
+
       // If they checked availability within the last 10 minutes and it's a different date
       if (timeDiffMinutes <= 10 && checkedDate !== currentDateToUse) {
-        console.log(`🎯 CONTEXT AWARENESS: User checked availability for ${checkedDate} ${timeDiffMinutes.toFixed(1)} minutes ago`);
-        console.log(`📅 Current booking date: ${currentDateToUse}, Checked date: ${checkedDate}`);
-        console.log(`💡 User likely wants to move to the checked date (${checkedDate}) at ${new_time}`);
-        
+        console.log(
+          `🎯 CONTEXT AWARENESS: User checked availability for ${checkedDate} ${timeDiffMinutes.toFixed(
+            1
+          )} minutes ago`
+        );
+        console.log(
+          `📅 Current booking date: ${currentDateToUse}, Checked date: ${checkedDate}`
+        );
+        console.log(
+          `💡 User likely wants to move to the checked date (${checkedDate}) at ${new_time}`
+        );
+
         // Log this insight but don't automatically change the behavior
         // The AI should handle this based on the improved instructions
-        console.log(`🤖 AI should consider suggesting: new_date: "${checkedDate}", new_time: "${new_time}"`);
+        console.log(
+          `🤖 AI should consider suggesting: new_date: "${checkedDate}", new_time: "${new_time}"`
+        );
       }
     }
 
@@ -1577,20 +1726,24 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     // Always include current_date and current_time (required by API)
     requestBody.current_date = currentDateToUse;
     requestBody.current_time = currentTimeToUse;
-    
+
     // For existing bookings, also include appointment_id for precise identification
-    if (targetBooking.type === 'existing' && targetBooking.originalBookingId) {
+    if (targetBooking.type === "existing" && targetBooking.originalBookingId) {
       requestBody.appointment_id = targetBooking.originalBookingId;
-      console.log(`🎯 Using appointment_id + date/time for existing booking: ${targetBooking.originalBookingId} (${currentDateToUse} at ${currentTimeToUse})`);
+      console.log(
+        `🎯 Using appointment_id + date/time for existing booking: ${targetBooking.originalBookingId} (${currentDateToUse} at ${currentTimeToUse})`
+      );
     } else {
-      console.log(`📅 Using date/time for session booking: ${currentDateToUse} at ${currentTimeToUse}`);
+      console.log(
+        `📅 Using date/time for session booking: ${currentDateToUse} at ${currentTimeToUse}`
+      );
     }
 
     // Update session with new booking details if provided
     if (callSid && (new_date || new_time || new_service_id)) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
-      
+
       // Add this update to the bookings array
       const updateBooking = {
         customerName: customerNameToUse,
@@ -1599,13 +1752,13 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         newDate: new_date,
         newTime: new_time,
         newServiceId: new_service_id,
-        type: 'update'
+        type: "update",
       };
-      
+
       bookings.push(updateBooking);
-      
+
       const sessionUpdate = {
-        bookings: bookings
+        bookings: bookings,
       };
       if (new_date) sessionUpdate.lastBookingDate = new_date;
       if (new_time) sessionUpdate.lastBookingTime = new_time;
@@ -1652,38 +1805,40 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     if (callSid && result.booking) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
-      
+
       // Update the most recent update booking with final details
       if (bookings.length > 0) {
         const lastBooking = bookings[bookings.length - 1];
-        if (lastBooking.type === 'update') {
+        if (lastBooking.type === "update") {
           lastBooking.finalDate = result.booking.appointment_date;
           lastBooking.finalTime = result.booking.start_time;
           lastBooking.appointmentId = result.booking.id;
           lastBooking.serviceName = result.booking.service_name;
         }
       }
-      
+
       // Mark any existing bookings with the same original date/time as updated
       // This prevents the AI from trying to update the same booking again
       for (const booking of bookings) {
-        if (booking.type === 'create' && 
-            booking.date === currentDateToUse && 
-            booking.time === currentTimeToUse) {
+        if (
+          booking.type === "create" &&
+          booking.date === currentDateToUse &&
+          booking.time === currentTimeToUse
+        ) {
           booking.updatedTo = {
             date: result.booking.appointment_date,
             time: result.booking.start_time,
-            appointmentId: result.booking.id
+            appointmentId: result.booking.id,
           };
           console.log(`🔄 Marked original booking as updated:`, {
             originalDate: booking.date,
             originalTime: booking.time,
             newDate: result.booking.appointment_date,
-            newTime: result.booking.start_time
+            newTime: result.booking.start_time,
           });
         }
       }
-      
+
       setCallSession(callSid, { bookings: bookings });
     }
 
@@ -1712,12 +1867,14 @@ export async function updateBooking(businessConfig, params, callSid = null) {
 export async function cancelBooking(businessConfig, params, callSid = null) {
   try {
     const timestamp = getShortTimestamp();
-    console.log(`[${timestamp}] ❌ CANCEL_BOOKING: ${params.customer_name} - ${params.date} ${params.time}`);
+    console.log(
+      `[${timestamp}] ❌ CANCEL_BOOKING: ${params.customer_name} - ${params.date} ${params.time}`
+    );
 
     const { customer_name, date, time, reason } = params;
     const business = businessConfig.business;
 
-    if (!business?.google_calendar_id) {
+    if (!isGoogleCalendarConnected(businessConfig)) {
       console.error("❌ No Google Calendar connected for business");
       return { error: "Calendar not connected" };
     }
@@ -1784,21 +1941,21 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
     if (callSid) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
-      
+
       const cancellation = {
         customerName: customerNameToUse,
         date: dateToUse,
         time: timeToUse,
         reason: reason || "Customer requested cancellation",
-        type: 'cancellation',
-        appointmentId: result.booking?.id
+        type: "cancellation",
+        appointmentId: result.booking?.id,
       };
-      
+
       bookings.push(cancellation);
-      
-      setCallSession(callSid, { 
+
+      setCallSession(callSid, {
         bookings: bookings,
-        bookingCancelled: true 
+        bookingCancelled: true,
       });
       console.log("📝 Tracked cancellation in session - no SMS will be sent");
     }
@@ -1825,7 +1982,7 @@ export async function cancelBooking(businessConfig, params, callSid = null) {
  */
 export async function endCall(callSid, params, businessConfig = null) {
   let smsSuccess = false; // Declare at function level to avoid scope issues
-  
+
   try {
     console.log(
       "📞 endCall called with params:",
@@ -1845,134 +2002,173 @@ export async function endCall(callSid, params, businessConfig = null) {
     console.log("📋 Session data before ending call:", session);
 
     // Send consolidated SMS with all bookings made during the call
-    if (session.bookings && session.bookings.length > 0 && session.callerPhone && businessConfig && !session.bookingCancelled) {
+    if (
+      session.bookings &&
+      session.bookings.length > 0 &&
+      session.callerPhone &&
+      businessConfig &&
+      !session.bookingCancelled
+    ) {
       try {
         // Track booking evolution: group by appointment chains
         const bookingChains = new Map(); // appointmentId -> array of booking states
         const cancelledAppointments = new Set(); // Track cancelled appointment IDs
         const finalBookings = [];
-        
+
         // First pass: track cancellations and group bookings by appointment ID
         for (const booking of session.bookings) {
-          if (booking.type === 'cancellation') {
+          if (booking.type === "cancellation") {
             // Track cancelled appointments
             if (booking.appointmentId) {
               cancelledAppointments.add(booking.appointmentId);
-              console.log(`❌ Appointment ${booking.appointmentId} was cancelled - will not send SMS`);
+              console.log(
+                `❌ Appointment ${booking.appointmentId} was cancelled - will not send SMS`
+              );
             }
             continue;
           }
-          
+
           // Skip original bookings that have been moved (have updatedTo field)
-          if (booking.type === 'create' && booking.updatedTo) {
-            console.log(`🔄 Skipping original booking that was moved: ${booking.appointmentId} (${booking.date} at ${booking.time}) -> moved to (${booking.updatedTo.date} at ${booking.updatedTo.time})`);
+          if (booking.type === "create" && booking.updatedTo) {
+            console.log(
+              `🔄 Skipping original booking that was moved: ${booking.appointmentId} (${booking.date} at ${booking.time}) -> moved to (${booking.updatedTo.date} at ${booking.updatedTo.time})`
+            );
             continue;
           }
-          
-          if (booking.type === 'create' && booking.appointmentId) {
+
+          if (booking.type === "create" && booking.appointmentId) {
             // New booking created
             bookingChains.set(booking.appointmentId, [booking]);
-          } else if (booking.type === 'update') {
+          } else if (booking.type === "update") {
             // Find which appointment this update belongs to
             let targetAppointmentId = booking.appointmentId;
-            
+
             // If no appointmentId, this is an intermediate update - find the target appointment
             if (!targetAppointmentId) {
               // Look for the most recent booking that could be updated
               // Try to match by service first, then by most recent
               let targetBooking = null;
-              
+
               // If the update specifies dates/times, try to match existing appointments
               if (booking.currentDate && booking.currentTime) {
-                for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
+                for (
+                  let i = session.bookings.indexOf(booking) - 1;
+                  i >= 0;
+                  i--
+                ) {
                   const prevBooking = session.bookings[i];
-                  if (prevBooking.appointmentId && 
-                      prevBooking.type === 'create' &&
-                      prevBooking.date === booking.currentDate &&
-                      prevBooking.time === booking.currentTime) {
+                  if (
+                    prevBooking.appointmentId &&
+                    prevBooking.type === "create" &&
+                    prevBooking.date === booking.currentDate &&
+                    prevBooking.time === booking.currentTime
+                  ) {
                     targetBooking = prevBooking;
                     break;
                   }
                 }
               }
-              
+
               // If no exact match, find the most recent create booking
               if (!targetBooking) {
-                for (let i = session.bookings.indexOf(booking) - 1; i >= 0; i--) {
+                for (
+                  let i = session.bookings.indexOf(booking) - 1;
+                  i >= 0;
+                  i--
+                ) {
                   const prevBooking = session.bookings[i];
-                  if (prevBooking.appointmentId && prevBooking.type === 'create') {
+                  if (
+                    prevBooking.appointmentId &&
+                    prevBooking.type === "create"
+                  ) {
                     targetBooking = prevBooking;
                     break;
                   }
                 }
               }
-              
+
               if (targetBooking) {
                 targetAppointmentId = targetBooking.appointmentId;
-                console.log(`🔗 Linked update to appointment ${targetAppointmentId} based on context`);
+                console.log(
+                  `🔗 Linked update to appointment ${targetAppointmentId} based on context`
+                );
               }
             }
-            
+
             if (targetAppointmentId) {
               if (!bookingChains.has(targetAppointmentId)) {
                 bookingChains.set(targetAppointmentId, []);
               }
               bookingChains.get(targetAppointmentId).push(booking);
             } else {
-              console.warn("⚠️ Could not link update to any appointment:", booking);
+              console.warn(
+                "⚠️ Could not link update to any appointment:",
+                booking
+              );
             }
           }
         }
-        
+
         // Second pass: determine final state for each booking chain
         for (const [appointmentId, chain] of bookingChains) {
           if (chain.length === 0) continue;
-          
+
           // Skip cancelled appointments - they should not receive SMS confirmations
           if (cancelledAppointments.has(appointmentId)) {
-            console.log(`🚫 Skipping SMS for cancelled appointment ${appointmentId}`);
+            console.log(
+              `🚫 Skipping SMS for cancelled appointment ${appointmentId}`
+            );
             continue;
           }
-          
+
           // Find the final state by looking at the last booking with complete info
           let finalBooking = null;
-          
+
           // Start with the create booking
-          const createBooking = chain.find(b => b.type === 'create');
+          const createBooking = chain.find((b) => b.type === "create");
           if (createBooking) {
             finalBooking = {
               appointmentId: createBooking.appointmentId,
               serviceName: createBooking.serviceName,
               date: createBooking.date,
               time: createBooking.time,
-              type: 'create'
+              type: "create",
             };
           }
-          
+
           // Apply updates in order
-          const updates = chain.filter(b => b.type === 'update').sort((a, b) => {
-            // Sort by order in the bookings array (later updates override earlier ones)
-            return session.bookings.indexOf(a) - session.bookings.indexOf(b);
-          });
-          
+          const updates = chain
+            .filter((b) => b.type === "update")
+            .sort((a, b) => {
+              // Sort by order in the bookings array (later updates override earlier ones)
+              return session.bookings.indexOf(a) - session.bookings.indexOf(b);
+            });
+
           for (const update of updates) {
             if (finalBooking) {
               // Update the final booking with new information
               if (update.finalDate) finalBooking.date = update.finalDate;
               if (update.finalTime) finalBooking.time = update.finalTime;
-              if (update.newDate && !update.finalDate) finalBooking.date = update.newDate;
-              if (update.newTime && !update.finalTime) finalBooking.time = update.newTime;
-              if (update.serviceName) finalBooking.serviceName = update.serviceName;
-              if (update.appointmentId) finalBooking.appointmentId = update.appointmentId;
-              
-              console.log(`📝 Applied update to appointment ${appointmentId}:`, {
-                finalDate: update.finalDate,
-                finalTime: update.finalTime,
-                newDate: update.newDate,
-                newTime: update.newTime,
-                resultingDate: finalBooking.date,
-                resultingTime: finalBooking.time
-              });
+              if (update.newDate && !update.finalDate)
+                finalBooking.date = update.newDate;
+              if (update.newTime && !update.finalTime)
+                finalBooking.time = update.newTime;
+              if (update.serviceName)
+                finalBooking.serviceName = update.serviceName;
+              if (update.appointmentId)
+                finalBooking.appointmentId = update.appointmentId;
+
+              console.log(
+                `📝 Applied update to appointment ${appointmentId}:`,
+                {
+                  finalDate: update.finalDate,
+                  finalTime: update.finalTime,
+                  newDate: update.newDate,
+                  newTime: update.newTime,
+                  resultingDate: finalBooking.date,
+                  resultingTime: finalBooking.time,
+                }
+              );
             } else if (updates.length > 0) {
               // If there's no create booking but there are updates, create finalBooking from the first update
               // This handles the case where we're updating an existing appointment that wasn't created in this call
@@ -1982,54 +2178,70 @@ export async function endCall(callSid, params, businessConfig = null) {
                 serviceName: firstUpdate.serviceName,
                 date: firstUpdate.finalDate || firstUpdate.newDate,
                 time: firstUpdate.finalTime || firstUpdate.newTime,
-                type: 'update'
+                type: "update",
               };
-              
-              console.log(`📝 Created finalBooking from update for existing appointment ${appointmentId}:`, {
-                date: finalBooking.date,
-                time: finalBooking.time,
-                serviceName: finalBooking.serviceName
-              });
-              
+
+              console.log(
+                `📝 Created finalBooking from update for existing appointment ${appointmentId}:`,
+                {
+                  date: finalBooking.date,
+                  time: finalBooking.time,
+                  serviceName: finalBooking.serviceName,
+                }
+              );
+
               // Apply any remaining updates
               for (let i = 1; i < updates.length; i++) {
                 const laterUpdate = updates[i];
-                if (laterUpdate.finalDate) finalBooking.date = laterUpdate.finalDate;
-                if (laterUpdate.finalTime) finalBooking.time = laterUpdate.finalTime;
-                if (laterUpdate.newDate && !laterUpdate.finalDate) finalBooking.date = laterUpdate.newDate;
-                if (laterUpdate.newTime && !laterUpdate.finalTime) finalBooking.time = laterUpdate.newTime;
-                if (laterUpdate.serviceName) finalBooking.serviceName = laterUpdate.serviceName;
-                if (laterUpdate.appointmentId) finalBooking.appointmentId = laterUpdate.appointmentId;
+                if (laterUpdate.finalDate)
+                  finalBooking.date = laterUpdate.finalDate;
+                if (laterUpdate.finalTime)
+                  finalBooking.time = laterUpdate.finalTime;
+                if (laterUpdate.newDate && !laterUpdate.finalDate)
+                  finalBooking.date = laterUpdate.newDate;
+                if (laterUpdate.newTime && !laterUpdate.finalTime)
+                  finalBooking.time = laterUpdate.newTime;
+                if (laterUpdate.serviceName)
+                  finalBooking.serviceName = laterUpdate.serviceName;
+                if (laterUpdate.appointmentId)
+                  finalBooking.appointmentId = laterUpdate.appointmentId;
               }
               break; // Exit the loop since we've processed all updates
             }
           }
-          
+
           if (finalBooking && finalBooking.appointmentId) {
             finalBookings.push(finalBooking);
           }
         }
-        
+
         if (finalBookings.length > 0) {
           // Deduplicate final bookings by appointmentId and content
           const uniqueBookings = [];
           const seenAppointmentIds = new Set();
           const seenContent = new Set();
-          
+
           for (const booking of finalBookings) {
             const contentKey = `${booking.date}-${booking.time}-${booking.serviceName}`;
-            
+
             // Skip if we've already seen this appointmentId or exact content
-            if (booking.appointmentId && seenAppointmentIds.has(booking.appointmentId)) {
-              console.log(`🔄 Skipping duplicate appointmentId: ${booking.appointmentId}`);
+            if (
+              booking.appointmentId &&
+              seenAppointmentIds.has(booking.appointmentId)
+            ) {
+              console.log(
+                `🔄 Skipping duplicate appointmentId: ${booking.appointmentId}`
+              );
               continue;
             }
-            
+
             if (seenContent.has(contentKey)) {
-              console.log(`🔄 Skipping duplicate booking content: ${contentKey}`);
+              console.log(
+                `🔄 Skipping duplicate booking content: ${contentKey}`
+              );
               continue;
             }
-            
+
             // Add to unique bookings
             uniqueBookings.push(booking);
             if (booking.appointmentId) {
@@ -2037,17 +2249,23 @@ export async function endCall(callSid, params, businessConfig = null) {
             }
             seenContent.add(contentKey);
           }
-          
+
           console.log(
             "📱 Sending consolidated SMS confirmation for unique bookings:",
-            uniqueBookings.map(b => `${b.appointmentId} (${b.serviceName} on ${b.date} at ${b.time})`)
+            uniqueBookings.map(
+              (b) =>
+                `${b.appointmentId} (${b.serviceName} on ${b.date} at ${b.time})`
+            )
           );
-          
+
           // Get customer name from session or fallback to first booking's customer name
-          const customerName = session.customerName || 
-                              (uniqueBookings.length > 0 ? uniqueBookings[0].customerName : null) ||
-                              "Valued Customer";
-          
+          const customerName =
+            session.customerName ||
+            (uniqueBookings.length > 0
+              ? uniqueBookings[0].customerName
+              : null) ||
+            "Valued Customer";
+
           await sendConsolidatedSMSConfirmation(
             {
               businessId: businessConfig.business.id,
@@ -2058,7 +2276,7 @@ export async function endCall(callSid, params, businessConfig = null) {
             businessConfig
           );
           console.log("✅ Consolidated SMS confirmation sent successfully");
-          
+
           // Mark SMS as sent in session to prevent duplicates
           setCallSession(callSid, { smsConfirmationSent: true });
           smsSuccess = true;
@@ -2067,12 +2285,17 @@ export async function endCall(callSid, params, businessConfig = null) {
           smsSuccess = true;
         }
       } catch (smsError) {
-        console.error("❌ Failed to send consolidated SMS confirmation:", smsError);
+        console.error(
+          "❌ Failed to send consolidated SMS confirmation:",
+          smsError
+        );
         // Don't fail the call ending if SMS fails, but don't clear session yet
         // This allows for potential retry in server.js disconnect handler
       }
     } else if (session.bookingCancelled) {
-      console.log("🚫 Skipping SMS confirmation - booking was cancelled in this call");
+      console.log(
+        "🚫 Skipping SMS confirmation - booking was cancelled in this call"
+      );
       smsSuccess = true; // No SMS needed for cancelled bookings
     } else {
       // No bookings at all, consider SMS successful
@@ -2098,9 +2321,13 @@ export async function endCall(callSid, params, businessConfig = null) {
     // Only clear call session if SMS was successful or not needed
     if (smsSuccess) {
       clearCallSession(callSid);
-      console.log(`🧹 Session cleared for call ${callSid} after successful SMS handling`);
+      console.log(
+        `🧹 Session cleared for call ${callSid} after successful SMS handling`
+      );
     } else {
-      console.log(`⚠️ Session retained for call ${callSid} due to SMS failure - may retry`);
+      console.log(
+        `⚠️ Session retained for call ${callSid} due to SMS failure - may retry`
+      );
     }
 
     return {
@@ -2108,7 +2335,7 @@ export async function endCall(callSid, params, businessConfig = null) {
       call_ended: true,
       callSid: callSid,
       status: call.status,
-      reason: reason
+      reason: reason,
     };
   } catch (error) {
     console.error("❌ Error ending call:", error);
@@ -2212,8 +2439,6 @@ export async function transferToHuman(businessConfig, params, callSid) {
   }
 }
 
-
-
 /**
  * Send consolidated SMS confirmation for multiple bookings
  * @param {Object} params - SMS parameters
@@ -2224,46 +2449,63 @@ export async function sendConsolidatedSMSConfirmation(params, businessConfig) {
   const { businessId, customerPhone, customerName, bookings } = params;
 
   // Get the template from dashboard configuration
-  const template = businessConfig?.config?.sms_confirmation_template ||
+  const template =
+    businessConfig?.config?.sms_confirmation_template ||
     `Hi {customer_name}, your appointment at {business_name} is confirmed for {date} at {time} for {service_name}. Duration: {duration} mins. Questions? Call {business_phone}`;
 
   // For multiple bookings, create a consolidated message using the template structure
   let message;
-  
+
   if (bookings.length === 1) {
     // Single booking - use template directly
     const booking = bookings[0];
     const date = booking.finalDate || booking.date;
     const time = booking.finalTime || booking.time;
-    const serviceName = booking.serviceName || booking.service_name || "your service";
-    const duration = booking.serviceDuration || booking.duration || booking.lastServiceDuration || "";
-    
+    const serviceName =
+      booking.serviceName || booking.service_name || "your service";
+    const duration =
+      booking.serviceDuration ||
+      booking.duration ||
+      booking.lastServiceDuration ||
+      "";
+
     message = template
       .replace(/{customer_name}/g, customerName)
-      .replace(/{business_name}/g, businessConfig?.business?.name || "our business")
+      .replace(
+        /{business_name}/g,
+        businessConfig?.business?.name || "our business"
+      )
       .replace(/{date}/g, date)
       .replace(/{time}/g, time)
       .replace(/{service_name}/g, serviceName)
       .replace(/{duration}/g, duration ? `${duration}` : "")
-      .replace(/{business_phone}/g, businessConfig?.business?.phone_number || "");
+      .replace(
+        /{business_phone}/g,
+        businessConfig?.business?.phone_number || ""
+      );
   } else {
     // Multiple bookings - adapt template for consolidated format
-    message = `Hi ${customerName}, your appointments at ${businessConfig?.business?.name || "our business"} are confirmed:\n\n`;
-    
+    message = `Hi ${customerName}, your appointments at ${
+      businessConfig?.business?.name || "our business"
+    } are confirmed:\n\n`;
+
     bookings.forEach((booking, index) => {
       const date = booking.finalDate || booking.date;
       const time = booking.finalTime || booking.time;
-      const serviceName = booking.serviceName || booking.service_name || "your service";
+      const serviceName =
+        booking.serviceName || booking.service_name || "your service";
       const duration = booking.serviceDuration || booking.duration || "";
-      
+
       message += `${index + 1}. ${serviceName} on ${date} at ${time}`;
       if (duration) {
         message += ` (${duration} mins)`;
       }
       message += `\n`;
     });
-    
-    message += `\nQuestions? Call ${businessConfig?.business?.phone_number || ""}`;
+
+    message += `\nQuestions? Call ${
+      businessConfig?.business?.phone_number || ""
+    }`;
   }
 
   // Call the SMS API with the first booking's appointment ID for tracking
@@ -2284,7 +2526,9 @@ export async function sendConsolidatedSMSConfirmation(params, businessConfig) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Consolidated SMS API error: ${response.status} ${errorText}`);
+    throw new Error(
+      `Consolidated SMS API error: ${response.status} ${errorText}`
+    );
   }
 
   console.log("✅ Consolidated SMS sent successfully");
