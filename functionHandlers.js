@@ -1026,6 +1026,19 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
     const availableTimes = result.slots?.map((slot) => slot.startTime) || [];
     console.log("✅ Available time slots:", availableTimes);
 
+    // Helper function to convert 24-hour to 12-hour format
+    const convertTo12Hour = (time24) => {
+      const [hours, minutes] = time24.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      return `${hour12}:${minutes} ${ampm}`;
+    };
+
+    // Create both 24-hour and 12-hour formats for AI processing
+    const availableSlots12Hour = availableTimes.map(convertTo12Hour);
+    console.log("✅ Available slots (12-hour):", availableSlots12Hour);
+
     // Store the checked date in session for context awareness
     if (callSid && date) {
       const session = getCallSession(callSid);
@@ -1039,6 +1052,11 @@ export async function getAvailableSlots(businessConfig, params, callSid = null) 
 
     return {
       available_slots: availableTimes,
+      available_slots_12hour: availableSlots12Hour,
+      conversion_map: availableTimes.reduce((map, time24, index) => {
+        map[availableSlots12Hour[index]] = time24;
+        return map;
+      }, {})
     };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);

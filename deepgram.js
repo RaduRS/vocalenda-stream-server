@@ -1000,7 +1000,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             JSON.stringify({
               type: "InjectAgentMessage",
               content:
-                "I notice you've been quiet for a while. Thank you for calling! Have a great day and goodbye!",
+                "I notice you've been quiet for a while. Thank you for calling! Goodbye!",
             })
           );
 
