@@ -1098,8 +1098,10 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       // Set 7-second timeout to end the call
       setTimeout(() => {
         console.log(`[${timestamp}] ⏰ FAREWELL_TIMEOUT: Ending call after 7 seconds`);
-        import('./functionHandlers.js').then(({ end_call }) => {
-          end_call({ reason: "AI farewell timeout after 7 seconds" });
+        import('./functionHandlers.js').then(({ endCall }) => {
+          // Get the call SID from the context
+          const callSid = context?.state?.callSid || context?.callSid;
+          endCall(callSid, { reason: "AI farewell timeout after 7 seconds" });
         });
       }, 7000);
     }
