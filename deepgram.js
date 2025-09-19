@@ -3,8 +3,61 @@ import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { getCurrentUKDateTime, getShortTimestamp } from "./dateUtils.js";
 import { validateConfig } from "./config.js";
 import { handleFunctionCall, getCallSession } from "./functionHandlers.js";
-import { db } from "./database.js";
+import { db, supabase } from "./database.js";
 import { ConnectionState } from "./managers/ConnectionState.js";
+
+/**
+ * Replace variables in greeting message with actual values
+ * @param {string} greeting - The greeting template with variables
+ * @param {Object} businessConfig - Business configuration
+ * @param {string} callerPhone - Caller's phone number
+ * @returns {Promise<string>} - Greeting with variables replaced
+ */
+async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
+  if (!greeting) return greeting;
+  
+  let processedGreeting = greeting;
+  
+  // Replace business name
+  const businessName = businessConfig?.business?.name || "our business";
+  processedGreeting = processedGreeting.replace(/{business_name}/g, businessName);
+  
+  // Replace customer name if caller phone is available
+  if (callerPhone && greeting.includes("{customer_name}")) {
+    try {
+      // Look up customer by phone number
+      const { data: existingBookings } = await supabase
+        .from("bookings")
+        .select("customer_name")
+        .eq("customer_phone", callerPhone)
+        .eq("business_id", businessConfig?.business?.id)
+        .not("customer_name", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (existingBookings && existingBookings.length > 0) {
+        const customerName = existingBookings[0].customer_name;
+        processedGreeting = processedGreeting.replace(/{customer_name}/g, customerName);
+        console.log(`🎯 Personalized greeting for known customer: ${customerName}`);
+      } else {
+        // If no customer found, remove the {customer_name} variable
+        processedGreeting = processedGreeting.replace(/{customer_name}/g, "");
+        // Clean up any extra spaces or punctuation that might result
+        processedGreeting = processedGreeting.replace(/Hi\s*!/g, "Hi!");
+        processedGreeting = processedGreeting.replace(/\s+/g, " ").trim();
+        console.log(`🔍 No existing customer found for phone: ${callerPhone}`);
+      }
+    } catch (error) {
+      console.error("❌ Error looking up customer for greeting:", error);
+      // Fallback: remove the variable
+      processedGreeting = processedGreeting.replace(/{customer_name}/g, "");
+      processedGreeting = processedGreeting.replace(/Hi\s*!/g, "Hi!");
+      processedGreeting = processedGreeting.replace(/\s+/g, " ").trim();
+    }
+  }
+  
+  return processedGreeting;
+}
 
 // Get configuration
 const config = validateConfig();
@@ -165,9 +218,12 @@ export async function initializeDeepgram(businessConfig, callContext) {
                   model: businessConfig.config?.ai_voice || "aura-2-thalia-en",
                 },
               },
-              greeting:
+              greeting: await replaceGreetingVariables(
                 businessConfig.config?.greeting_message ||
                 "Thank you for calling, how can I help you today?",
+                businessConfig,
+                callContext.callerPhone
+              ),
             },
           };
 
