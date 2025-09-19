@@ -447,8 +447,6 @@ export function initializeTranscriptTracking(callSid) {
   console.log(`📝 Initialized transcript tracking for call: ${callSid}`);
 }
 
-
-
 /**
  * Save the accumulated transcript to the database
  * @param {string} callSid - The call SID to save transcript for
@@ -744,9 +742,7 @@ export async function handleDeepgramMessage(
         const deepgramData = JSON.parse(messageStr);
 
         // Log the event type prominently
-        console.log(
-          `[${timestamp}] 🎯 DEEPGRAM: ${deepgramData.type}`
-        );
+        console.log(`[${timestamp}] 🎯 DEEPGRAM: ${deepgramData.type}`);
 
         // Handle different types of Deepgram messages
         const context = {
@@ -984,8 +980,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
       deepgramWs
     );
 
-
-
     // Set up silence detection timeouts using connection state
     const scheduleNextSilenceCheck = () => {
       connectionState.silenceManager.setSilenceTimeout(() => {
@@ -1012,9 +1006,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
 
           // Set a 7-second timeout to ensure call ends even if AI doesn't finish speaking
           setTimeout(() => {
-            console.log(`[${timestamp}] ⏰ TIMEOUT: Force ending call after 7 seconds`);
+            console.log(
+              `[${timestamp}] ⏰ TIMEOUT: Force ending call after 7 seconds`
+            );
             // Import and call end_call function directly
-            import('./functionHandlers.js').then(({ end_call }) => {
+            import("./functionHandlers.js").then(({ end_call }) => {
               end_call({ reason: "silence timeout after 7 seconds" });
             });
           }, 7000);
@@ -1093,17 +1089,21 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     // Check for farewell message to trigger call ending
     // Note: ConversationText may not have role info, so we check for AI farewell patterns
     if (content && content.toLowerCase().includes("have a great day")) {
-      console.log(`[${timestamp}] 👋 FAREWELL_DETECTED: AI said 'Have a great day' - triggering call end`);
-      
+      console.log(
+        `[${timestamp}] 👋 FAREWELL_DETECTED: AI said 'Have a great day' - triggering call end`
+      );
+
       // Set 7-second timeout to end the call
       setTimeout(() => {
-        console.log(`[${timestamp}] ⏰ FAREWELL_TIMEOUT: Ending call after 7 seconds`);
-        import('./functionHandlers.js').then(({ endCall }) => {
+        console.log(
+          `[${timestamp}] ⏰ FAREWELL_TIMEOUT: Ending call after 5 seconds`
+        );
+        import("./functionHandlers.js").then(({ endCall }) => {
           // Get the call SID from the context
           const callSid = context?.state?.callSid || context?.callSid;
-          endCall(callSid, { reason: "AI farewell timeout after 7 seconds" });
+          endCall(callSid, { reason: "AI farewell timeout after 5 seconds" });
         });
-      }, 7000);
+      }, 5000);
     }
 
     // Add conversation text to transcript - both ConversationText and History are needed
