@@ -1863,6 +1863,12 @@ export async function endCall(callSid, params, businessConfig = null) {
             continue;
           }
           
+          // Skip original bookings that have been moved (have updatedTo field)
+          if (booking.type === 'create' && booking.updatedTo) {
+            console.log(`🔄 Skipping original booking that was moved: ${booking.appointmentId} (${booking.date} at ${booking.time}) -> moved to (${booking.updatedTo.date} at ${booking.updatedTo.time})`);
+            continue;
+          }
+          
           if (booking.type === 'create' && booking.appointmentId) {
             // New booking created
             bookingChains.set(booking.appointmentId, [booking]);
