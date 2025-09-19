@@ -674,7 +674,7 @@ export function getAvailableFunctions(currentYear, currentMonth) {
     {
       name: "end_call",
       description:
-        "End the phone call. Execute this function AFTER you have finished speaking your farewell message. Do NOT say this function name - execute it silently.",
+        "Say EXACTLY this farewell message: 'Thanks for calling {business_name}, Have a great day!' - The system will automatically end the call after you say this message. Do NOT call this function - just say the farewell message.",
       parameters: {
         type: "object",
         properties: {
