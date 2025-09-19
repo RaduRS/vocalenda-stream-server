@@ -1090,12 +1090,18 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
     const content = deepgramData.text || deepgramData.content;
     console.log(`[${timestamp}] 💭 CONVERSATION_TEXT:`, content);
 
-    // Check if call is ending and this is from assistant - suppress AI farewell messages
-    if (session?.callEnding && deepgramData.role === "assistant") {
-      console.log(
-        `[${timestamp}] 🛑 CALL_ENDING: Suppressing AI ConversationText because call is terminating: "${content}"`
-      );
-      return;
+    // Check for farewell message to trigger call ending
+    // Note: ConversationText may not have role info, so we check for AI farewell patterns
+    if (content && content.toLowerCase().includes("have a great day")) {
+      console.log(`[${timestamp}] 👋 FAREWELL_DETECTED: AI said 'Have a great day' - triggering call end`);
+      
+      // Set 7-second timeout to end the call
+      setTimeout(() => {
+        console.log(`[${timestamp}] ⏰ FAREWELL_TIMEOUT: Ending call after 7 seconds`);
+        import('./functionHandlers.js').then(({ end_call }) => {
+          end_call({ reason: "AI farewell timeout after 7 seconds" });
+        });
+      }, 7000);
     }
 
     // Add conversation text to transcript - both ConversationText and History are needed
