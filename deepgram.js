@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { generateSystemPrompt, getAvailableFunctions } from "./utils.js";
 import { getCurrentUKDateTime, getShortTimestamp } from "./dateUtils.js";
 import { validateConfig } from "./config.js";
-import { handleFunctionCall, getCallSession } from "./functionHandlers.js";
+import { handleFunctionCall } from "./functionHandlers.js";
 import { db, supabase } from "./database.js";
 import { ConnectionState } from "./managers/ConnectionState.js";
 
@@ -23,7 +23,7 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
   processedGreeting = processedGreeting.replace(/{business_name}/g, businessName);
   
   // Replace customer name if caller phone is available
-  if (callerPhone && greeting.includes("{customer_name}")) {
+  if (callerPhone && processedGreeting.includes("{customer_name}")) {
     try {
       // Look up customer by phone number
       const { data: existingBookings } = await supabase
@@ -56,6 +56,7 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
     }
   }
   
+  console.log(`🔧 Final processed greeting: "${processedGreeting}"`);
   return processedGreeting;
 }
 
@@ -842,11 +843,9 @@ export async function handleDeepgramMessage(
  * @param {Object} context - Context object
  */
 async function handleDeepgramMessageType(deepgramData, timestamp, context) {
-  const { twilioWs, deepgramWs, streamSid, state, callSid } = context;
+  const { twilioWs, deepgramWs, streamSid, state } = context;
   const connectionState = deepgramWs.connectionState;
 
-  // Cache session data once per function call to avoid repeated getCallSession calls
-  const session = getCallSession(callSid);
 
   if (deepgramData.type === "SettingsApplied") {
     // Deepgram is now ready to receive audio
