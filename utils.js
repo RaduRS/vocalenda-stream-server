@@ -24,7 +24,7 @@ export function getTodayDate() {
  * @param {Object} callContext - Call context information
  * @returns {string} Generated system prompt
  */
-export function generateSystemPrompt(businessConfig) {
+export function generateSystemPrompt(businessConfig, callContext = {}) {
   const business = businessConfig.business;
   const services = businessConfig.services;
 
@@ -54,9 +54,15 @@ export function generateSystemPrompt(businessConfig) {
   const currentMonth = todayDate.toLocaleString("en-GB", { month: "long" });
   const currentMonthYear = `${currentMonth} ${currentYear}`;
 
+  // Customer context information
+  const customerName = callContext.customerName;
+  const customerContext = customerName 
+    ? `\n\n👤 CUSTOMER CONTEXT:\n- The caller's name is ${customerName}\n- You already greeted them by name, so they know you recognize them\n- If they ask "Do you know my name?" or similar, respond: "Yes, you are ${customerName}"\n- Use their name naturally in conversation when appropriate\n- This shows personalized service and builds rapport`
+    : '';
+
   let prompt = `🗓️ SYSTEM DATE & TIME OVERRIDE: You are operating in ${currentMonthYear}. Today's date is ${today} (${todayConversational}) and the current time is ${currentTimeConversational}. Ignore any internal calendar knowledge from other years.
 
-You are the AI voice assistant for ${business.name}. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.
+You are the AI voice assistant for ${business.name}. Today is ${todayConversational} and it's currently ${currentTimeConversational}. Your PRIMARY job is booking appointments using functions.${customerContext}
 
 🗓️ CURRENT DATE & TIME CONTEXT:
 - TODAY IS ${todayConversational} (${today})
