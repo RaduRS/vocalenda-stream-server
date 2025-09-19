@@ -1009,9 +1009,10 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             console.log(
               `[${timestamp}] ⏰ TIMEOUT: Force ending call after 7 seconds`
             );
-            // Import and call end_call function directly
-            import("./functionHandlers.js").then(({ end_call }) => {
-              end_call({ reason: "silence timeout after 7 seconds" });
+            // Import and call endCall function directly
+            import("./functionHandlers.js").then(({ endCall }) => {
+              const callSid = context?.state?.callSid || context?.callSid;
+              endCall(callSid, { reason: "silence timeout after 7 seconds" }, context?.businessConfig);
             });
           }, 7000);
 
@@ -1093,7 +1094,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         `[${timestamp}] 👋 FAREWELL_DETECTED: AI said 'Have a great day' - triggering call end`
       );
 
-      // Set 7-second timeout to end the call
+      // Set 5-second timeout to end the call
       setTimeout(() => {
         console.log(
           `[${timestamp}] ⏰ FAREWELL_TIMEOUT: Ending call after 5 seconds`
@@ -1101,7 +1102,7 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         import("./functionHandlers.js").then(({ endCall }) => {
           // Get the call SID from the context
           const callSid = context?.state?.callSid || context?.callSid;
-          endCall(callSid, { reason: "AI farewell timeout after 5 seconds" });
+          endCall(callSid, { reason: "AI farewell timeout after 5 seconds" }, context?.businessConfig);
         });
       }, 5000);
     }
