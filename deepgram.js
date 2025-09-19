@@ -33,13 +33,13 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
     try {
       // Look up customer by phone number in customer table
       console.log(`🔍 GREETING DEBUG: Query params:`, {
-        table: "customer",
+        table: "customers",
         phone: callerPhone,
         business_id: businessConfig?.business?.id
       });
       
       const { data: existingCustomers, error } = await supabase
-        .from("customer")
+        .from("customers")
         .select("first_name, last_name")
         .eq("phone", callerPhone)
         .eq("business_id", businessConfig?.business?.id)
@@ -53,7 +53,7 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
       // If no customer found, let's check if there are any customers for this business
       if (!existingCustomers || existingCustomers.length === 0) {
         const { data: allCustomers } = await supabase
-          .from("customer")
+          .from("customers")
           .select("phone, first_name")
           .eq("business_id", businessConfig?.business?.id)
           .limit(5);
