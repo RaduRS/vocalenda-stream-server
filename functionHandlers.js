@@ -1987,14 +1987,41 @@ export async function endCall(callSid, params, businessConfig = null) {
         }
         
         if (finalBookings.length > 0) {
+          // Deduplicate final bookings by appointmentId and content
+          const uniqueBookings = [];
+          const seenAppointmentIds = new Set();
+          const seenContent = new Set();
+          
+          for (const booking of finalBookings) {
+            const contentKey = `${booking.date}-${booking.time}-${booking.serviceName}`;
+            
+            // Skip if we've already seen this appointmentId or exact content
+            if (booking.appointmentId && seenAppointmentIds.has(booking.appointmentId)) {
+              console.log(`🔄 Skipping duplicate appointmentId: ${booking.appointmentId}`);
+              continue;
+            }
+            
+            if (seenContent.has(contentKey)) {
+              console.log(`🔄 Skipping duplicate booking content: ${contentKey}`);
+              continue;
+            }
+            
+            // Add to unique bookings
+            uniqueBookings.push(booking);
+            if (booking.appointmentId) {
+              seenAppointmentIds.add(booking.appointmentId);
+            }
+            seenContent.add(contentKey);
+          }
+          
           console.log(
-            "📱 Sending consolidated SMS confirmation for bookings:",
-            finalBookings.map(b => b.appointmentId)
+            "📱 Sending consolidated SMS confirmation for unique bookings:",
+            uniqueBookings.map(b => `${b.appointmentId} (${b.serviceName} on ${b.date} at ${b.time})`)
           );
           
           // Get customer name from session or fallback to first booking's customer name
           const customerName = session.customerName || 
-                              (finalBookings.length > 0 ? finalBookings[0].customerName : null) ||
+                              (uniqueBookings.length > 0 ? uniqueBookings[0].customerName : null) ||
                               "Valued Customer";
           
           await sendConsolidatedSMSConfirmation(
@@ -2002,7 +2029,7 @@ export async function endCall(callSid, params, businessConfig = null) {
               businessId: businessConfig.business.id,
               customerPhone: session.callerPhone,
               customerName: customerName,
-              bookings: finalBookings,
+              bookings: uniqueBookings,
             },
             businessConfig
           );
