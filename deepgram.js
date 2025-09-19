@@ -14,31 +14,20 @@ import { ConnectionState } from "./managers/ConnectionState.js";
  * @returns {Promise<string>} - Greeting with variables replaced
  */
 async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
-  console.log(`🔧 GREETING DEBUG: Starting with template: "${greeting}"`);
-  console.log(`📞 GREETING DEBUG: Caller phone: ${callerPhone}`);
-  console.log(`🏢 GREETING DEBUG: Business ID: ${businessConfig?.business?.id}`);
-  
-  if (!greeting) return greeting;
+  if (!greeting) return { greeting, customerName: null };
   
   let processedGreeting = greeting;
+  let customerName = null;
   
   // Replace business name
   const businessName = businessConfig?.business?.name || "our business";
   processedGreeting = processedGreeting.replace(/{business_name}/g, businessName);
-  console.log(`🏢 GREETING DEBUG: After business name replacement: "${processedGreeting}"`);
   
   // Replace customer name if caller phone is available
   if (callerPhone && processedGreeting.includes("{customer_name}")) {
-    console.log(`👤 GREETING DEBUG: Looking up customer for phone: ${callerPhone}`);
     try {
       // Look up customer by phone number in customer table
-      console.log(`🔍 GREETING DEBUG: Query params:`, {
-        table: "customers",
-        phone: callerPhone,
-        business_id: businessConfig?.business?.id
-      });
-      
-      const { data: existingCustomers, error } = await supabase
+      const { data: existingCustomers } = await supabase
         .from("customers")
         .select("first_name, last_name")
         .eq("phone", callerPhone)
@@ -47,45 +36,27 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
         .order("created_at", { ascending: false })
         .limit(1);
       
-      console.log(`📊 GREETING DEBUG: Database query result:`, existingCustomers);
-      console.log(`❌ GREETING DEBUG: Database query error:`, error);
-      
-      // If no customer found, let's check if there are any customers for this business
-      if (!existingCustomers || existingCustomers.length === 0) {
-        const { data: allCustomers } = await supabase
-          .from("customers")
-          .select("phone, first_name")
-          .eq("business_id", businessConfig?.business?.id)
-          .limit(5);
-        console.log(`🔍 GREETING DEBUG: Sample customers for business:`, allCustomers);
-      }
-      
       if (existingCustomers && existingCustomers.length > 0) {
         const customer = existingCustomers[0];
-        const customerName = customer.first_name + (customer.last_name ? ` ${customer.last_name}` : '');
+        customerName = customer.first_name + (customer.last_name ? ` ${customer.last_name}` : '');
         processedGreeting = processedGreeting.replace(/{customer_name}/g, customerName);
-        console.log(`🎯 GREETING DEBUG: Found customer "${customerName}" - personalized greeting created`);
       } else {
         // If no customer found, remove the {customer_name} variable
         processedGreeting = processedGreeting.replace(/{customer_name}/g, "");
         // Clean up any extra spaces or punctuation that might result
         processedGreeting = processedGreeting.replace(/Hi\s*!/g, "Hi!");
         processedGreeting = processedGreeting.replace(/\s+/g, " ").trim();
-        console.log(`🔍 GREETING DEBUG: No existing customer found for phone: ${callerPhone}`);
       }
     } catch (error) {
-      console.error("❌ GREETING DEBUG: Error looking up customer for greeting:", error);
+      console.error("Error looking up customer for greeting:", error);
       // Fallback: remove the variable
       processedGreeting = processedGreeting.replace(/{customer_name}/g, "");
       processedGreeting = processedGreeting.replace(/Hi\s*!/g, "Hi!");
       processedGreeting = processedGreeting.replace(/\s+/g, " ").trim();
     }
-  } else {
-    console.log(`⚠️ GREETING DEBUG: Skipping customer lookup - callerPhone: ${callerPhone}, hasCustomerNameVar: ${processedGreeting.includes("{customer_name}")}`);
   }
   
-  console.log(`✅ GREETING DEBUG: Final processed greeting: "${processedGreeting}"`);
-  return processedGreeting;
+  return { greeting: processedGreeting, customerName };
 }
 
 // Get configuration
@@ -176,8 +147,23 @@ export async function initializeDeepgram(businessConfig, callContext) {
             `[${timestamp}] ✅ WELCOME: Received - sending agent configuration...`
           );
 
-          // Generate system prompt
-          const systemPrompt = generateSystemPrompt(businessConfig);
+          // First, extract customer name from greeting to include in system prompt
+          const greetingSource = businessConfig.business?.ai_greeting ||
+            "Thank you for calling, how can I help you today?";
+          
+          const { greeting, customerName } = await replaceGreetingVariables(
+            greetingSource,
+            businessConfig,
+            callContext.callerPhone
+          );
+          
+          // Store customer name in call context
+          if (customerName) {
+            callContext.customerName = customerName;
+          }
+
+          // Generate system prompt with customer context
+          const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
           console.log(
             `[${timestamp}] 📝 PROMPT: Generated length:`,
@@ -247,21 +233,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
                   model: businessConfig.config?.ai_voice || "aura-2-thalia-en",
                 },
               },
-              greeting: await (async () => {
-                const greetingSource = businessConfig.business?.ai_greeting ||
-                  "Thank you for calling, how can I help you today?";
-                
-                console.log(`🎯 GREETING DEBUG: Using greeting source:`, {
-                  ai_greeting: businessConfig.business?.ai_greeting,
-                  selected: greetingSource
-                });
-                
-                return await replaceGreetingVariables(
-                  greetingSource,
-                  businessConfig,
-                  callContext.callerPhone
-                );
-              })(),
+              greeting: greeting,
             },
           };
 
