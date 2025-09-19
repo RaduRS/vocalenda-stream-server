@@ -32,7 +32,13 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
     console.log(`👤 GREETING DEBUG: Looking up customer for phone: ${callerPhone}`);
     try {
       // Look up customer by phone number in customer table
-      const { data: existingCustomers } = await supabase
+      console.log(`🔍 GREETING DEBUG: Query params:`, {
+        table: "customer",
+        phone: callerPhone,
+        business_id: businessConfig?.business?.id
+      });
+      
+      const { data: existingCustomers, error } = await supabase
         .from("customer")
         .select("first_name, last_name")
         .eq("phone", callerPhone)
@@ -42,6 +48,17 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
         .limit(1);
       
       console.log(`📊 GREETING DEBUG: Database query result:`, existingCustomers);
+      console.log(`❌ GREETING DEBUG: Database query error:`, error);
+      
+      // If no customer found, let's check if there are any customers for this business
+      if (!existingCustomers || existingCustomers.length === 0) {
+        const { data: allCustomers } = await supabase
+          .from("customer")
+          .select("phone, first_name")
+          .eq("business_id", businessConfig?.business?.id)
+          .limit(5);
+        console.log(`🔍 GREETING DEBUG: Sample customers for business:`, allCustomers);
+      }
       
       if (existingCustomers && existingCustomers.length > 0) {
         const customer = existingCustomers[0];
