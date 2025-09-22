@@ -1023,12 +1023,8 @@ export async function getAvailableSlots(
     `[${timestamp}] 🗓️ GET_SLOTS: ${params.date} service:${params.service_id}`
   );
 
-  // 🚨 IMMEDIATE FEEDBACK: Send acknowledgment message to eliminate silence
-  // This provides instant feedback while the availability check processes
-  console.log(`[${timestamp}] 💬 IMMEDIATE_FEEDBACK: Sending acknowledgment for availability check`);
-  
-  // Note: The AI should have already provided verbal acknowledgment based on the system prompt
-  // This is a backup mechanism to ensure no silence occurs
+  // Note: Immediate feedback is now handled by the AI via system prompt
+  // No backup mechanism needed as the AI provides instant verbal acknowledgment
 
   try {
     const { date, service_id } = params;
