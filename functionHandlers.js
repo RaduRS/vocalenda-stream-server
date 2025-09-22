@@ -1580,10 +1580,10 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     let targetBooking = null;
 
     if (booking_reference) {
-      // Find booking by reference ID
+      // Find booking by reference ID OR appointment ID (for flexibility)
       const bookings = session.bookings || [];
       targetBooking = bookings.find(
-        (b) => b.bookingReference === booking_reference
+        (b) => b.bookingReference === booking_reference || b.appointmentId === booking_reference
       );
 
       if (!targetBooking) {
@@ -1717,6 +1717,49 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     console.log(`👤 Customer: ${customerNameToUse}`);
     console.log(`📅 Booking: ${currentDateToUse} at ${currentTimeToUse}`);
 
+    // Handle service lookup and validation if new_service_id is provided
+    let validatedServiceId = new_service_id;
+    let serviceDetails = null;
+    
+    if (new_service_id) {
+      // First try to find by ID (UUID)
+      serviceDetails = businessConfig.services.find((s) => s.id === new_service_id);
+
+      // If not found by ID, try to find by name (case-insensitive)
+      if (!serviceDetails) {
+        serviceDetails = businessConfig.services.find(
+          (s) => s.name.toLowerCase() === new_service_id.toLowerCase()
+        );
+        if (serviceDetails) {
+          validatedServiceId = serviceDetails.id; // Use the actual UUID
+          console.log(
+            `📋 Found service by name '${new_service_id}' -> ID: ${validatedServiceId}`
+          );
+        }
+      }
+
+      if (serviceDetails) {
+        console.log(
+          "📋 Updating to service:",
+          serviceDetails.name,
+          "(Duration:",
+          serviceDetails.duration_minutes,
+          "minutes)"
+        );
+      } else {
+        console.error("❌ Service not found with ID/Name:", new_service_id);
+        console.error(
+          "📋 Available services:",
+          businessConfig.services.map((s) => `${s.name} (${s.id})`)
+        );
+        return {
+          error: `Service not found: ${new_service_id}. Available services: ${businessConfig.services
+            .map((s) => s.name)
+            .join(", ")}`,
+        };
+      }
+    }
+
     // Prepare request body with only defined values
     const requestBody = {
       business_id: business.id,
@@ -1743,7 +1786,7 @@ export async function updateBooking(businessConfig, params, callSid = null) {
     }
 
     // Update session with new booking details if provided
-    if (callSid && (new_date || new_time || new_service_id)) {
+    if (callSid && (new_date || new_time || validatedServiceId)) {
       const session = getCallSession(callSid);
       const bookings = session.bookings || [];
 
@@ -1754,7 +1797,8 @@ export async function updateBooking(businessConfig, params, callSid = null) {
         currentTime: currentTimeToUse,
         newDate: new_date,
         newTime: new_time,
-        newServiceId: new_service_id,
+        newServiceId: validatedServiceId,
+        newServiceName: serviceDetails?.name,
         type: "update",
       };
 
@@ -1765,15 +1809,16 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       };
       if (new_date) sessionUpdate.lastBookingDate = new_date;
       if (new_time) sessionUpdate.lastBookingTime = new_time;
-      if (new_service_id) sessionUpdate.lastServiceId = new_service_id;
+      if (validatedServiceId) sessionUpdate.lastServiceId = validatedServiceId;
+      if (serviceDetails?.name) sessionUpdate.lastServiceName = serviceDetails.name;
       setCallSession(callSid, sessionUpdate);
     }
 
     // Only include new values if they are defined
     if (new_date !== undefined) requestBody.new_date = new_date;
     if (new_time !== undefined) requestBody.new_time = new_time;
-    if (new_service_id !== undefined)
-      requestBody.new_service_id = new_service_id;
+    if (validatedServiceId !== undefined)
+      requestBody.new_service_id = validatedServiceId;
 
     console.log(
       "📦 Update request body:",
