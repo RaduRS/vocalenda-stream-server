@@ -69,7 +69,6 @@ wss.on("connection", async (ws) => {
 
         case "start": {
           console.log("Media stream started:", data);
-          console.log("Media format:", data.start?.mediaFormat);
 
           // Extract parameters from Twilio
           const customParameters = data.start?.customParameters || {};

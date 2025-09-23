@@ -137,10 +137,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
 
         const data = JSON.parse(message.toString());
         console.log(`[${timestamp}] 📨 INIT: Deepgram message:`, data.type);
-        console.log(
-          `[${timestamp}] 📦 INIT: Full data:`,
-          JSON.stringify(data, null, 2)
-        );
 
         if (data.type === "Welcome") {
           console.log(
