@@ -165,23 +165,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
           // Generate system prompt with customer context
           const systemPrompt = generateSystemPrompt(businessConfig, callContext);
 
-          console.log(
-            `[${timestamp}] 📝 PROMPT: Generated length:`,
-            systemPrompt.length,
-            "characters"
-          );
-          console.log(
-            `[${timestamp}] 📝 PROMPT: Preview (first 500 chars):`,
-            systemPrompt.substring(0, 500) + "..."
-          );
-          console.log(`[${timestamp}] 🔧 PROMPT: Full content:`);
-          console.log(systemPrompt);
-          console.log(`[${timestamp}] 🔧 PROMPT: End of content`);
-          console.log(
-            `[${timestamp}] 🎯 PROMPT: Function calling rules included:`,
-            systemPrompt.includes("get_available_slots")
-          );
-
           // Get dynamic date variables for function descriptions
           const todayUK = getCurrentUKDateTime();
           const currentYear = todayUK.getFullYear();
@@ -238,10 +221,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
           };
 
           console.log(`[${timestamp}] 📋 CONFIG: Summary:`);
-          console.log(`[${timestamp}]    - Audio input: mulaw, 8000Hz`);
-          console.log(`[${timestamp}]    - Audio output: mulaw, 8000Hz`);
-          console.log(`[${timestamp}]    - Think model: gpt-4o-mini`);
-          console.log(`[${timestamp}]    - Speak model: aura-2-thalia-en`);
           console.log(
             `[${timestamp}]    - Functions available:`,
             Array.isArray(functionsArray) ? functionsArray.length : 0
