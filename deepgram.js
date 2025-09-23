@@ -15,14 +15,17 @@ import { ConnectionState } from "./managers/ConnectionState.js";
  */
 async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
   if (!greeting) return { greeting, customerName: null };
-  
+
   let processedGreeting = greeting;
   let customerName = null;
-  
+
   // Replace business name
   const businessName = businessConfig?.business?.name || "our business";
-  processedGreeting = processedGreeting.replace(/{business_name}/g, businessName);
-  
+  processedGreeting = processedGreeting.replace(
+    /{business_name}/g,
+    businessName
+  );
+
   // Replace customer name if caller phone is available
   if (callerPhone && processedGreeting.includes("{customer_name}")) {
     try {
@@ -35,11 +38,16 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
         .not("first_name", "is", null)
         .order("created_at", { ascending: false })
         .limit(1);
-      
+
       if (existingCustomers && existingCustomers.length > 0) {
         const customer = existingCustomers[0];
-        customerName = customer.first_name + (customer.last_name ? ` ${customer.last_name}` : '');
-        processedGreeting = processedGreeting.replace(/{customer_name}/g, customerName);
+        customerName =
+          customer.first_name +
+          (customer.last_name ? ` ${customer.last_name}` : "");
+        processedGreeting = processedGreeting.replace(
+          /{customer_name}/g,
+          customerName
+        );
       } else {
         // If no customer found, remove the {customer_name} variable
         processedGreeting = processedGreeting.replace(/{customer_name}/g, "");
@@ -55,7 +63,7 @@ async function replaceGreetingVariables(greeting, businessConfig, callerPhone) {
       processedGreeting = processedGreeting.replace(/\s+/g, " ").trim();
     }
   }
-  
+
   return { greeting: processedGreeting, customerName };
 }
 
@@ -144,22 +152,26 @@ export async function initializeDeepgram(businessConfig, callContext) {
           );
 
           // First, extract customer name from greeting to include in system prompt
-          const greetingSource = businessConfig.business?.ai_greeting ||
+          const greetingSource =
+            businessConfig.business?.ai_greeting ||
             "Thank you for calling, how can I help you today?";
-          
+
           const { greeting, customerName } = await replaceGreetingVariables(
             greetingSource,
             businessConfig,
             callContext.callerPhone
           );
-          
+
           // Store customer name in call context
           if (customerName) {
             callContext.customerName = customerName;
           }
 
           // Generate system prompt with customer context
-          const systemPrompt = generateSystemPrompt(businessConfig, callContext);
+          const systemPrompt = generateSystemPrompt(
+            businessConfig,
+            callContext
+          );
 
           // Get dynamic date variables for function descriptions
           const todayUK = getCurrentUKDateTime();
@@ -245,10 +257,6 @@ export async function initializeDeepgram(businessConfig, callContext) {
 
           console.log(
             `[${timestamp}] 📤 SENDING: Configuration to Deepgram...`
-          );
-          console.log(
-            `[${timestamp}] 📦 CONFIG: Full payload:`,
-            JSON.stringify(config, null, 2)
           );
 
           try {
@@ -830,7 +838,6 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
   const { twilioWs, deepgramWs, streamSid, state } = context;
   const connectionState = deepgramWs.connectionState;
 
-
   if (deepgramData.type === "SettingsApplied") {
     // Deepgram is now ready to receive audio
     console.log(
@@ -1051,7 +1058,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
             // Import and call endCall function directly
             import("./functionHandlers.js").then(({ endCall }) => {
               const callSid = context?.state?.callSid || context?.callSid;
-              endCall(callSid, { reason: "silence timeout after 7 seconds" }, context?.businessConfig);
+              endCall(
+                callSid,
+                { reason: "silence timeout after 7 seconds" },
+                context?.businessConfig
+              );
             });
           }, 7000);
 
@@ -1141,7 +1152,11 @@ async function handleDeepgramMessageType(deepgramData, timestamp, context) {
         import("./functionHandlers.js").then(({ endCall }) => {
           // Get the call SID from the context
           const callSid = context?.state?.callSid || context?.callSid;
-          endCall(callSid, { reason: "AI farewell timeout after 5 seconds" }, context?.businessConfig);
+          endCall(
+            callSid,
+            { reason: "AI farewell timeout after 5 seconds" },
+            context?.businessConfig
+          );
         });
       }, 5000);
     }
