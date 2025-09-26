@@ -158,6 +158,25 @@ BUSINESS: ${business.name}`;
     prompt += `\n\n⚠️ BUSINESS HOURS VALIDATION:\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
   }
 
+  // Add payment methods information if available
+  const paymentMethods = businessConfig.paymentMethods || [];
+  if (paymentMethods.length > 0) {
+    prompt += `\n\n💳 ACCEPTED PAYMENT METHODS:`;
+    paymentMethods.forEach((method) => {
+      // Handle both string format and object format
+      if (typeof method === 'string') {
+        prompt += ` ${method}`;
+      } else if (typeof method === 'object' && method.name) {
+        prompt += ` ${method.name}`;
+        if (method.description) {
+          prompt += ` (${method.description})`;
+        }
+      }
+      prompt += `,`;
+    });
+    prompt += `\n\n💰 PAYMENT INFORMATION:\n- Only mention payment methods when customer asks about payment options\n- If customer asks about payment, list the accepted methods above\n- NEVER mention about payment method during booking unless customer specifically asks`;
+  }
+
   prompt += `\n\n🚨 MANDATORY FUNCTION RULES:
 1. AFTER getting customer name + service interest → ASK for their preferred time
 2. VALIDATE requested time is within business hours BEFORE checking availability

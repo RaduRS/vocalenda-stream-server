@@ -40,6 +40,23 @@ export async function loadBusinessConfig(businessId) {
       .eq("business_id", businessId)
       .eq("is_active", true);
 
+    // Parse payment methods from business data
+    let paymentMethods = [];
+    if (business.payment_methods) {
+      try {
+        // If payment_methods is a string (JSON), parse it
+        if (typeof business.payment_methods === 'string') {
+          paymentMethods = JSON.parse(business.payment_methods);
+        } else if (Array.isArray(business.payment_methods)) {
+          // If it's already an array, use it directly
+          paymentMethods = business.payment_methods;
+        }
+      } catch (error) {
+        console.error("Error parsing payment_methods:", error);
+        paymentMethods = [];
+      }
+    }
+
     // Log Google Calendar connection status for debugging
     logGoogleCalendarStatus(business, config);
 
@@ -48,6 +65,7 @@ export async function loadBusinessConfig(businessId) {
       config: config || null,
       services: services || [],
       staffMembers: staffMembers || [],
+      paymentMethods: paymentMethods,
     };
   } catch (error) {
     console.error("Error loading business config:", error);
