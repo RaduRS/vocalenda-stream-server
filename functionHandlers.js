@@ -1179,6 +1179,8 @@ export async function getAvailableSlots(
         map[availableSlots12Hour[index]] = time24;
         return map;
       }, {}),
+      checked_at: new Date().toISOString(),
+      freshness_warning: "⚠️ Availability data may change. Always validate before booking.",
     };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);
@@ -1824,6 +1826,56 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       "📦 Update request body:",
       JSON.stringify(requestBody, null, 2)
     );
+
+    // CRITICAL FIX: Validate availability in real-time before booking
+    if (new_date || new_time) {
+      const targetDate = new_date || currentDateToUse;
+      const targetTime = new_time || currentTimeToUse;
+      
+      console.log(`🔍 REAL-TIME VALIDATION: Checking availability for ${targetDate} at ${targetTime}`);
+      
+      // Call the same availability API that the booking system uses (POST method)
+      const availabilityResponse = await fetch(
+        `${config.nextjs.siteUrl}/api/calendar/availability`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-secret": config.nextjs.internalApiSecret,
+          },
+          body: JSON.stringify({
+            business_id: business.id,
+            date: targetDate,
+            time: targetTime,
+            service_id: validatedServiceId || targetBooking.serviceId,
+            excludeBookingId: targetBooking.appointmentId, // Exclude current booking from conflict check
+          }),
+        }
+      );
+
+      if (!availabilityResponse.ok) {
+        const errorText = await availabilityResponse.text();
+        console.error("❌ Availability check failed:", availabilityResponse.status, errorText);
+        return {
+          error: `Unable to verify availability: ${errorText}`,
+        };
+      }
+
+      const availabilityResult = await availabilityResponse.json();
+      
+      if (!availabilityResult.available) {
+        console.error(`❌ REAL-TIME CONFLICT: ${targetDate} at ${targetTime} is no longer available`);
+        console.error("🔍 Conflict reason:", availabilityResult.reason || "Time slot taken");
+        
+        return {
+          error: `The time slot ${targetDate} at ${targetTime} is no longer available. Please choose a different time.`,
+          conflictReason: availabilityResult.reason,
+          suggestAlternatives: true
+        };
+      }
+      
+      console.log(`✅ REAL-TIME VALIDATION PASSED: ${targetDate} at ${targetTime} is available`);
+    }
 
     // Call the internal Next.js API to update the booking
     const response = await fetch(
