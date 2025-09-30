@@ -1179,8 +1179,6 @@ export async function getAvailableSlots(
         map[availableSlots12Hour[index]] = time24;
         return map;
       }, {}),
-      checked_at: new Date().toISOString(),
-      freshness_warning: "⚠️ Availability data may change. Always validate before booking.",
     };
   } catch (error) {
     console.error("❌ Error getting available slots:", error);
@@ -1381,57 +1379,9 @@ export async function createBooking(businessConfig, params, callSid = null) {
     console.log(`🕐 End time: ${endTimeString}`);
     console.log(`📅 Day of week: ${getDayOfWeekName(parsedDate)}`);
 
-    // CRITICAL: Check availability before creating booking to prevent double bookings
-    console.log("🔍 Checking slot availability before booking...");
-    try {
-      const availabilityResponse = await fetch(
-        `${
-          config.nextjs.siteUrl || "http://localhost:3000"
-        }/api/calendar/availability`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-internal-secret": config.nextjs.internalApiSecret,
-          },
-          body: JSON.stringify({
-            businessId: businessConfig.business.id,
-            serviceId: service.id,
-            appointmentDate: date,
-            startTime: startTime,
-            endTime: endTimeString,
-          }),
-        }
-      );
-
-      if (!availabilityResponse.ok) {
-        console.error(
-          "❌ Failed to check availability:",
-          availabilityResponse.status
-        );
-        return {
-          error: "Unable to verify slot availability. Please try again.",
-        };
-      }
-
-      const availabilityResult = await availabilityResponse.json();
-      console.log(
-        "📋 Availability check result:",
-        JSON.stringify(availabilityResult, null, 2)
-      );
-
-      if (!availabilityResult.available) {
-        console.log("❌ Slot not available - preventing double booking");
-        return {
-          error: `Sorry, the ${time} slot on ${date} is no longer available. Please choose a different time.`,
-        };
-      }
-
-      console.log("✅ Slot is available - proceeding with booking");
-    } catch (error) {
-      console.error("❌ Error checking availability:", error);
-      return { error: "Unable to verify slot availability. Please try again." };
-    }
+    // ATOMIC BOOKING: Let the booking API handle availability checking
+    // This eliminates the false "unavailable" errors caused by redundant checks
+    console.log("🔄 Proceeding with atomic booking (availability verified by booking API)...");
 
     // Prepare booking data for the Next.js API
     const bookingData = {
