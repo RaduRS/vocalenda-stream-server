@@ -1285,6 +1285,7 @@ export async function createBooking(businessConfig, params, callSid = null) {
       service.id,
       ")"
     );
+    console.log(`🔍 DEBUG: Complete service object:`, JSON.stringify(service, null, 2));
 
     // Store customer info in session for future use
     if (callSid && customer_name) {
@@ -1360,11 +1361,16 @@ export async function createBooking(businessConfig, params, callSid = null) {
         : time;
 
     // Calculate end time by adding service duration
+    console.log(`🔍 DEBUG: Service duration_minutes = ${service.duration_minutes} (type: ${typeof service.duration_minutes})`);
     const [hours, minutes] = timeIn24h.split(":").map(Number);
+    console.log(`🔍 DEBUG: Parsed time - hours: ${hours}, minutes: ${minutes}`);
     const startMinutes = hours * 60 + minutes;
+    console.log(`🔍 DEBUG: Start minutes: ${startMinutes}`);
     const endMinutes = startMinutes + service.duration_minutes;
+    console.log(`🔍 DEBUG: End minutes: ${endMinutes} (${startMinutes} + ${service.duration_minutes})`);
     const endHours = Math.floor(endMinutes / 60);
     const endMins = endMinutes % 60;
+    console.log(`🔍 DEBUG: End time calculation - hours: ${endHours}, mins: ${endMins}`);
     const endTimeIn24h = `${endHours.toString().padStart(2, "0")}:${endMins
       .toString()
       .padStart(2, "0")}`;
@@ -1777,109 +1783,6 @@ export async function updateBooking(businessConfig, params, callSid = null) {
       JSON.stringify(requestBody, null, 2)
     );
 
-    // CRITICAL FIX: Validate availability in real-time before booking
-    if (new_date || new_time) {
-      const targetDate = new_date || currentDateToUse;
-      const targetTime = new_time || currentTimeToUse;
-      
-      console.log(`🔍 REAL-TIME VALIDATION: Checking availability for ${targetDate} at ${targetTime}`);
-      
-      // Calculate end time for the availability check
-         let targetServiceId = validatedServiceId || targetBooking.serviceId;
-         let serviceDuration = 30; // Default duration
-         
-         // If user requested a new service, we must use that
-         if (validatedServiceId) {
-           targetServiceId = validatedServiceId;
-           console.log(`🎯 Using user-requested service: ${targetServiceId}`);
-         } else if (targetBooking.serviceId) {
-           targetServiceId = targetBooking.serviceId;
-           console.log(`🔄 Using existing booking service: ${targetServiceId}`);
-         } else {
-            // If no service ID available at all, we cannot validate availability
-            console.log(`⚠️ No service ID available for booking ${targetBooking.appointmentId}, skipping real-time validation`);
-            console.log(`📋 Booking details:`, targetBooking);
-            
-            // If user requested a new service but existing booking has no service, that's still valid
-            if (validatedServiceId) {
-              console.log(`✅ User requested service change to: ${validatedServiceId}, will proceed without validation`);
-            }
-          }
-         
-         if (targetServiceId) {
-           const service = businessConfig.services.find(s => s.id === targetServiceId);
-           if (service) {
-             serviceDuration = service.duration_minutes;
-             console.log(`📏 Service duration: ${serviceDuration} minutes for service: ${service.name}`);
-           } else {
-             console.error(`❌ Service not found: ${targetServiceId}`);
-             return {
-               error: `Service not found: ${targetServiceId}. Please check the service ID.`,
-             };
-           }
-         }
-         
-         // Only proceed with validation if we have a service ID
-         if (targetServiceId) {
-       
-       // Convert time to 24-hour format if needed
-       const timeIn24h = targetTime.includes("AM") || targetTime.includes("PM") || 
-                        targetTime.includes("am") || targetTime.includes("pm")
-         ? convert12to24Hour(targetTime)
-         : targetTime;
-       
-       // Calculate end time
-       const [hours, minutes] = timeIn24h.split(":").map(Number);
-       const startMinutes = hours * 60 + minutes;
-       const endMinutes = startMinutes + serviceDuration;
-       const endHours = Math.floor(endMinutes / 60);
-       const endMins = endMinutes % 60;
-       const endTime = `${endHours.toString().padStart(2, "0")}:${endMins.toString().padStart(2, "0")}`;
-
-       // Call the same availability API that the booking system uses (POST method)
-       const availabilityResponse = await fetch(
-         `${config.nextjs.siteUrl}/api/calendar/availability`,
-         {
-           method: "POST",
-           headers: {
-             "Content-Type": "application/json",
-             "x-internal-secret": config.nextjs.internalApiSecret,
-           },
-           body: JSON.stringify({
-             businessId: business.id,
-             serviceId: targetServiceId,
-             appointmentDate: targetDate,
-             startTime: timeIn24h,
-             endTime: endTime,
-             excludeBookingId: targetBooking.appointmentId, // Exclude current booking from conflict check
-           }),
-         }
-       );
-
-      if (!availabilityResponse.ok) {
-        const errorText = await availabilityResponse.text();
-        console.error("❌ Availability check failed:", availabilityResponse.status, errorText);
-        return {
-          error: `Unable to verify availability: ${errorText}`,
-        };
-      }
-
-      const availabilityResult = await availabilityResponse.json();
-      
-      if (!availabilityResult.available) {
-        console.error(`❌ REAL-TIME CONFLICT: ${targetDate} at ${targetTime} is no longer available`);
-        console.error("🔍 Conflict reason:", availabilityResult.reason || "Time slot taken");
-        
-        return {
-          error: `The time slot ${targetDate} at ${targetTime} is no longer available. Please choose a different time.`,
-          conflictReason: availabilityResult.reason,
-          suggestAlternatives: true
-        };
-      }
-      
-      console.log(`✅ REAL-TIME VALIDATION PASSED: ${targetDate} at ${targetTime} is available`);
-        }
-    }
 
     // Call the internal Next.js API to update the booking
     const response = await fetch(
