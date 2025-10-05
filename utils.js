@@ -618,7 +618,7 @@ export function getAvailableFunctions(currentYear, currentMonth) {
         properties: {
           date: {
             type: "string",
-            description: `Date in DD/MM/YYYY format (e.g., 16/09/${currentYear} for ${currentMonth} 16, ${currentYear})`,
+            description: `Date in DD/MM/YYYY format (e.g., 16/09/${currentYear}) or YYYY-MM-DD format (e.g., ${currentYear}-09-16)`,
           },
         },
         required: ["date"],

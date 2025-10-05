@@ -681,9 +681,18 @@ export async function handleFunctionCall(
             break;
           }
 
-          // Try to parse the date
-          const parsedDate = parseUKDate(dateValue);
-          console.log("📅 Parsed date successfully:", parsedDate);
+          // Try to parse the date - handle both DD/MM/YYYY and YYYY-MM-DD formats
+          let parsedDate;
+          try {
+            // First try UK format (DD/MM/YYYY)
+            parsedDate = parseUKDate(dateValue);
+            console.log("📅 Parsed date successfully (UK format):", parsedDate);
+          } catch (ukError) {
+            console.log("📅 UK format failed, trying ISO format (YYYY-MM-DD)...");
+            // If UK format fails, try ISO format (YYYY-MM-DD)
+            parsedDate = parseISODate(dateValue);
+            console.log("📅 Parsed date successfully (ISO format):", parsedDate);
+          }
 
           const dayName = getDayOfWeekName(parsedDate);
           const dayNumber = getDayOfWeekNumber(parsedDate);
