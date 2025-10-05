@@ -527,13 +527,20 @@ export function isWithinBusinessHours(date, time, businessConfig) {
     const dayName = getDayOfWeekName(parsedDate).toLowerCase();
 
     const dayHours = businessHours[dayName];
-    
-    // Debug logging
-    console.log(`🔍 Checking business hours for ${dayName}:`, dayHours);
-    console.log(`🔍 Full business hours config:`, businessHours);
 
-    if (!dayHours || !dayHours.open || !dayHours.close) {
-      console.log(`❌ Business closed on ${dayName} - no hours configured`);
+    // Helper function to check if a time value is valid
+    const isValidTime = (timeStr) => {
+      return timeStr && 
+             timeStr !== "" && 
+             timeStr !== null && 
+             timeStr !== undefined &&
+             typeof timeStr === 'string' &&
+             timeStr.includes(':');
+    };
+
+    // Check if day is closed - no valid opening or closing times
+    if (!dayHours || !isValidTime(dayHours.open) || !isValidTime(dayHours.close)) {
+      console.log(`❌ Business closed on ${dayName} - no valid hours configured`);
       return {
         isWithin: false,
         message: `We're closed on ${
