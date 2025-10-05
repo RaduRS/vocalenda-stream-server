@@ -138,7 +138,7 @@ BUSINESS: ${business.name}`;
   }
 
   // Add business hours information if available
-  const businessHours = businessConfig.config?.business_hours;
+  const businessHours = businessConfig.business?.business_hours;
   if (businessHours) {
     prompt += `\n\n🕐 BUSINESS HOURS:`;
     if (businessHours.monday)
@@ -514,7 +514,7 @@ Be friendly and helpful. Provide immediate responses about availability without 
  * @returns {Object} { isWithinHours: boolean, message?: string }
  */
 export function isWithinBusinessHours(date, time, businessConfig) {
-  const businessHours = businessConfig.config?.business_hours;
+  const businessHours = businessConfig.business?.business_hours;
 
   if (!businessHours) {
     // If no business hours configured, allow all times
@@ -528,8 +528,23 @@ export function isWithinBusinessHours(date, time, businessConfig) {
 
     const dayHours = businessHours[dayName];
 
-    // Check if day is closed - first check explicit closed flag, then if no config exists
-    if (!dayHours || dayHours.closed === true || dayHours.closed === "true") {
+    // Enhanced closed day checking with debug logging
+    console.log(`🔍 Checking business hours for ${dayName}:`, dayHours);
+
+    // Check if day is closed - multiple conditions for robustness
+    if (!dayHours) {
+      console.log(`❌ No configuration found for ${dayName} - treating as closed`);
+      return {
+        isWithin: false,
+        message: `We're closed on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
+      };
+    }
+
+    // Check explicit closed flag (handle both boolean and string values)
+    if (dayHours.closed === true || dayHours.closed === "true" || dayHours.closed === 1) {
+      console.log(`❌ ${dayName} is explicitly marked as closed`);
       return {
         isWithin: false,
         message: `We're closed on ${
@@ -540,6 +555,7 @@ export function isWithinBusinessHours(date, time, businessConfig) {
 
     // If not explicitly closed, check if we have valid open/close times
     if (!dayHours.open || !dayHours.close) {
+      console.log(`❌ ${dayName} missing open/close times - treating as closed`);
       return {
         isWithin: false,
         message: `We're closed on ${
@@ -559,6 +575,7 @@ export function isWithinBusinessHours(date, time, businessConfig) {
     const closeMinutes = closeHour * 60 + closeMin;
 
     if (requestMinutes < openMinutes || requestMinutes >= closeMinutes) {
+      console.log(`❌ ${time} is outside business hours ${dayHours.open}-${dayHours.close} on ${dayName}`);
       return {
         isWithin: false,
         message: `We're open ${dayHours.open}-${dayHours.close} on ${
@@ -567,6 +584,7 @@ export function isWithinBusinessHours(date, time, businessConfig) {
       };
     }
 
+    console.log(`✅ ${time} is within business hours on ${dayName}`);
     return { isWithin: true };
   } catch (error) {
     console.error("Error checking business hours:", error);

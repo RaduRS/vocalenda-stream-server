@@ -2594,14 +2594,17 @@ export async function checkBusinessStatus(businessConfig, params = {}, callSid =
     }
 
     // Check if the business is open on this day
+    const dayName = getDayOfWeekName(parsedDate);
+    const isToday = targetDate === currentDate;
+    
+    // Debug: Log the business configuration for this day
+    console.log(`🔍 DEBUG: Business config for ${dayName}:`, businessConfig.business?.business_hours?.[dayName.toLowerCase()]);
+    
     const businessHoursCheck = isWithinBusinessHours(
       targetDate,
       "09:00", // Use a default time just to check if the day is open
       businessConfig
     );
-
-    const dayName = getDayOfWeekName(parsedDate);
-    const isToday = targetDate === currentDate;
     
     if (!businessHoursCheck.isWithin && businessHoursCheck.message.includes("closed")) {
       console.log(`📅 Business is closed on ${dayName}`);
@@ -2612,7 +2615,7 @@ export async function checkBusinessStatus(businessConfig, params = {}, callSid =
         date: targetDate,
         isToday: isToday,
         currentTime: currentTime,
-        businessHours: businessConfig.config?.business_hours
+        businessHours: businessConfig.business?.business_hours
       };
     }
 
@@ -2624,7 +2627,7 @@ export async function checkBusinessStatus(businessConfig, params = {}, callSid =
         businessConfig
       );
       
-      const businessHours = businessConfig.config?.business_hours;
+      const businessHours = businessConfig.business?.business_hours;
       const todayHours = businessHours?.[dayName.toLowerCase()];
       
       if (!currentTimeCheck.isWithin) {
@@ -2643,7 +2646,7 @@ export async function checkBusinessStatus(businessConfig, params = {}, callSid =
     }
 
     // Business is open
-    const businessHours = businessConfig.config?.business_hours;
+    const businessHours = businessConfig.business?.business_hours;
     const todayHours = businessHours?.[dayName.toLowerCase()];
     
     console.log(`✅ Business is open on ${dayName}`);
