@@ -155,7 +155,7 @@ BUSINESS: ${business.name}`;
       prompt += ` Sat: ${businessHours.saturday.open}-${businessHours.saturday.close}`;
     if (businessHours.sunday)
       prompt += ` Sun: ${businessHours.sunday.open}-${businessHours.sunday.close}`;
-    prompt += `\n\n⚠️ BUSINESS HOURS VALIDATION:\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
+    prompt += `\n\n🚨 CRITICAL BUSINESS HOURS VALIDATION:\n- MANDATORY: Call check_business_status BEFORE making ANY statements about being open/closed\n- NEVER say "we are open" or "we are closed" without calling check_business_status first\n- When customer asks "Are you open?" → IMMEDIATELY call check_business_status\n- NEVER assume business status based on hours alone - always verify with check_business_status\n- NEVER check availability for times outside business hours\n- If customer requests booking outside business hours, politely inform them of operating hours\n- Only call get_available_slots for times within business hours`;
   }
 
   // Add payment methods information if available
@@ -591,6 +591,21 @@ export function getAvailableFunctions(currentYear, currentMonth) {
       parameters: {
         type: "object",
         properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "check_business_status",
+      description:
+        "MANDATORY: Check if the business is currently open or closed. You MUST call this function BEFORE making ANY statements about business hours, opening status, or availability. This is REQUIRED whenever customers ask 'Are you open?', 'What are your hours?', or when you need to confirm business status before booking. NEVER assume the business is open without calling this function first.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Optional date to check in YYYY-MM-DD format. If not provided, checks current date.",
+          },
+        },
         required: [],
       },
     },

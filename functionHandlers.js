@@ -613,6 +613,10 @@ export async function handleFunctionCall(
         result = await endCall(callSid, params, businessConfig);
         break;
 
+      case "check_business_status":
+        result = await checkBusinessStatus(businessConfig, params, callSid);
+        break;
+
       case "get_current_time":
         try {
           console.log("🕐 Getting current time");
@@ -2539,4 +2543,118 @@ export async function sendConsolidatedSMSConfirmation(params, businessConfig) {
   }
 
   console.log("✅ Consolidated SMS sent successfully");
+}
+
+/**
+ * Check if the business is currently open
+ * @param {Object} businessConfig - The business configuration
+ * @param {Object} params - Parameters (optional date, defaults to today)
+ * @param {string} callSid - The call session ID
+ * @returns {Object} Business status information
+ */
+export async function checkBusinessStatus(businessConfig, params = {}, callSid = null) {
+  const timestamp = getShortTimestamp();
+  console.log(`[${timestamp}] 🏢 CHECK_BUSINESS_STATUS called`);
+
+  try {
+    const businessInfo = businessConfig.business;
+    const validationTimezone = businessInfo.timezone || UK_TIMEZONE;
+    
+    // Use provided date or current date
+    const targetDate = params.date || new Date().toISOString().split('T')[0];
+    
+    // Get current time in business timezone
+    const now = new Date();
+    const businessTime = new Date(now.toLocaleString("en-US", { timeZone: validationTimezone }));
+    const currentTime = businessTime.toTimeString().slice(0, 5); // HH:MM format
+    const currentDate = businessTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    console.log(`🕐 Current business time: ${currentTime}, Current date: ${currentDate}`);
+    console.log(`📅 Checking status for date: ${targetDate}`);
+
+    // Parse the target date
+    let parsedDate;
+    try {
+      parsedDate = parseISODate(targetDate);
+    } catch (error) {
+      console.error(`❌ Invalid date format: ${targetDate}`);
+      return { 
+        error: `Invalid date format: ${targetDate}`,
+        isOpen: false 
+      };
+    }
+
+    // Check if the business is open on this day
+    const businessHoursCheck = isWithinBusinessHours(
+      targetDate,
+      "09:00", // Use a default time just to check if the day is open
+      businessConfig
+    );
+
+    const dayName = getDayOfWeekName(parsedDate);
+    const isToday = targetDate === currentDate;
+    
+    if (!businessHoursCheck.isWithin && businessHoursCheck.message.includes("closed")) {
+      console.log(`📅 Business is closed on ${dayName}`);
+      return {
+        isOpen: false,
+        message: `We are closed on ${dayName}s`,
+        dayName: dayName,
+        date: targetDate,
+        isToday: isToday,
+        currentTime: currentTime,
+        businessHours: businessConfig.config?.business_hours
+      };
+    }
+
+    // If checking for today, also verify current time is within business hours
+    if (isToday) {
+      const currentTimeCheck = isWithinBusinessHours(
+        targetDate,
+        currentTime,
+        businessConfig
+      );
+      
+      const businessHours = businessConfig.config?.business_hours;
+      const todayHours = businessHours?.[dayName.toLowerCase()];
+      
+      if (!currentTimeCheck.isWithin) {
+        console.log(`🕐 Business is closed right now (outside business hours)`);
+        return {
+          isOpen: false,
+          message: currentTimeCheck.message,
+          dayName: dayName,
+          date: targetDate,
+          isToday: true,
+          currentTime: currentTime,
+          businessHours: todayHours,
+          reason: "outside_hours"
+        };
+      }
+    }
+
+    // Business is open
+    const businessHours = businessConfig.config?.business_hours;
+    const todayHours = businessHours?.[dayName.toLowerCase()];
+    
+    console.log(`✅ Business is open on ${dayName}`);
+    return {
+      isOpen: true,
+      message: `We are open on ${dayName}s`,
+      dayName: dayName,
+      date: targetDate,
+      isToday: isToday,
+      currentTime: currentTime,
+      businessHours: todayHours,
+      openTime: todayHours?.open,
+      closeTime: todayHours?.close
+    };
+
+  } catch (error) {
+    console.error("❌ Error checking business status:", error);
+    return {
+      error: "Unable to check business status",
+      isOpen: false
+    };
+  }
 }
