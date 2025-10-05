@@ -514,6 +514,7 @@ Be friendly and helpful. Provide immediate responses about availability without 
  * @returns {Object} { isWithinHours: boolean, message?: string }
  */
 export function isWithinBusinessHours(date, time, businessConfig) {
+  console.log(`🔍 isWithinBusinessHours called for ${date} at ${time}`);
   const businessHours = businessConfig.config?.business_hours;
 
   if (!businessHours) {
@@ -528,18 +529,19 @@ export function isWithinBusinessHours(date, time, businessConfig) {
 
     const dayHours = businessHours[dayName];
 
-    // Helper function to check if a time value is valid
-    const isValidTime = (timeStr) => {
-      return timeStr && 
-             timeStr !== "" && 
-             timeStr !== null && 
-             timeStr !== undefined &&
-             typeof timeStr === 'string' &&
-             timeStr.includes(':');
-    };
+    // Check if day is closed - first check explicit closed flag
+    if (!dayHours || dayHours.closed === true) {
+      console.log(`❌ Business closed on ${dayName} - marked as closed`);
+      return {
+        isWithin: false,
+        message: `We're closed on ${
+          dayName.charAt(0).toUpperCase() + dayName.slice(1)
+        }s`,
+      };
+    }
 
-    // Check if day is closed - no valid opening or closing times
-    if (!dayHours || !isValidTime(dayHours.open) || !isValidTime(dayHours.close)) {
+    // If not explicitly closed, check if we have valid open/close times
+    if (!dayHours.open || !dayHours.close) {
       console.log(`❌ Business closed on ${dayName} - no valid hours configured`);
       return {
         isWithin: false,

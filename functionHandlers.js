@@ -2594,11 +2594,21 @@ export async function checkBusinessStatus(businessConfig, params = {}, callSid =
     }
 
     // Check if the business is open on this day
-    const businessHoursCheck = isWithinBusinessHours(
-      targetDate,
-      "09:00", // Use a default time just to check if the day is open
-      businessConfig
-    );
+    let businessHoursCheck;
+    try {
+      businessHoursCheck = isWithinBusinessHours(
+        targetDate,
+        "09:00", // Use a default time just to check if the day is open
+        businessConfig
+      );
+      console.log(`🔍 isWithinBusinessHours returned:`, businessHoursCheck);
+    } catch (error) {
+      console.error(`❌ Error calling isWithinBusinessHours:`, error);
+      return { 
+        error: `Error checking business hours: ${error.message}`,
+        isOpen: false 
+      };
+    }
 
     const dayName = getDayOfWeekName(parsedDate);
     const isToday = targetDate === currentDate;
