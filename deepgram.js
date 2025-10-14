@@ -213,7 +213,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
               think: {
                 provider: {
                   type: "open_ai",
-                  model: "gpt-4.1-mini",
+                  model: "gemini-2.0-flash-lite",
                 },
                 prompt: systemPrompt,
                 functions: Array.isArray(functionsArray) ? functionsArray : [],
