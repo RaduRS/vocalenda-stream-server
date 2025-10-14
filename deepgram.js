@@ -212,8 +212,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
               },
               think: {
                 provider: {
-                  type: "anthropic",
-                  model: "claude-3-5-haiku-latest",
+                  type: "open_ai",
+                  model: "gpt-4.1-mini",
                 },
                 prompt: systemPrompt,
                 functions: Array.isArray(functionsArray) ? functionsArray : [],
