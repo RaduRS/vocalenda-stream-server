@@ -212,7 +212,7 @@ export async function initializeDeepgram(businessConfig, callContext) {
               },
               think: {
                 provider: {
-                  type: "open_ai",
+                  type: "google",
                   model: "gemini-2.5-flash",
                 },
                 prompt: systemPrompt,
