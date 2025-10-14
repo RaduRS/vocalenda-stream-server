@@ -212,8 +212,8 @@ export async function initializeDeepgram(businessConfig, callContext) {
               },
               think: {
                 provider: {
-                  type: "google",
-                  model: "gemini-2.0-flash-lite",
+                  type: "anthropic",
+                  model: "claude-3-5-haiku-latest",
                 },
                 prompt: systemPrompt,
                 functions: Array.isArray(functionsArray) ? functionsArray : [],
